@@ -357,15 +357,21 @@ function Invoke-MyUplinkAuswertung {
 
     $imp = $r.Impulse
     $delta = {
-        # Zählerzuwachs im Tagesbereich: letzter Wert minus Wert vor Tagesbeginn (bzw. erster Wert im Tag)
-        param($arr, $acc)
-        $ende = [double]::NaN; $anf = [double]::NaN
+        # Zählerzuwachs im Bereich: letzter Wert minus Wert vor Bereichsbeginn (bzw. erster Wert im Bereich).
+        # Streng (Tageszeilen): Beginnt der Zähler erst mehr als 60 min nach Bereichsbeginn, gibt es keinen Wert.
+        param($arr, $acc, [bool]$streng)
+        $ende = [double]::NaN; $anf = [double]::NaN; $iAnf = -1
         for ($k = $acc.Last; $k -ge $acc.First; $k--) { if (-not [double]::IsNaN($arr[$k])) { $ende = $arr[$k]; break } }
-        if ($acc.First -gt 0 -and -not [double]::IsNaN($arr[$acc.First - 1])) { $anf = $arr[$acc.First - 1] }
-        else { for ($k = $acc.First; $k -le $acc.Last; $k++) { if (-not [double]::IsNaN($arr[$k])) { $anf = $arr[$k]; break } } }
+        if ($acc.First -gt 0 -and -not [double]::IsNaN($arr[$acc.First - 1])) { $anf = $arr[$acc.First - 1]; $iAnf = $acc.First }
+        else { for ($k = $acc.First; $k -le $acc.Last; $k++) { if (-not [double]::IsNaN($arr[$k])) { $anf = $arr[$k]; $iAnf = $k; break } } }
         if ([double]::IsNaN($ende) -or [double]::IsNaN($anf)) { return $null }
+        if ($streng -and ($iAnf - $acc.First) -gt 60) { return $null }
+        if (($acc.Last - $iAnf) -lt 60) { return $null }      # weniger als eine Stunde Zählerdaten
         [math]::Round($ende - $anf, 1) + 0.0
     }
+    $zaehlerAb = $null
+    $zr = $reihe[$script:MuId.LuxStromGes]
+    if ($null -ne $zr -and $zr.T.Length -gt 0 -and $zr.T[0] -gt $start + 60 * $tpm) { $zaehlerAb = [datetime]$zr.T[0] }
     $quote = { param($q, $e) if ($null -ne $q -and $null -ne $e -and $e -gt 0) { [math]::Round($q / $e, 2) } else { $null } }
     $baueZeile = {
         param($bez, $acc, $zyk, $abtauN, $wwN)
@@ -377,11 +383,13 @@ function Invoke-MyUplinkAuswertung {
         $pausen = @($zyk | Where-Object { $null -ne $_.Pause_vorher_min } | ForEach-Object { [double]$_.Pause_vorher_min })
         $lzh = [math]::Round($acc.An / 60.0, 1)
         $vl = Get-MuMittel $acc.VL; $rl = Get-MuMittel $acc.RL
-        $eHz = & $delta $r.LuxStromHz $acc; $qHz = & $delta $r.LuxWaermeHz $acc
-        $eWW = & $delta $r.LuxStromWW $acc; $qWW = & $delta $r.LuxWaermeWW $acc
-        $eGs = & $delta $r.LuxStromGes $acc; $qGs = & $delta $r.LuxWaermeGes $acc
+        $streng = $bez -ne 'Gesamt'
+        $eHz = & $delta $r.LuxStromHz $acc $streng; $qHz = & $delta $r.LuxWaermeHz $acc $streng
+        $eWW = & $delta $r.LuxStromWW $acc $streng; $qWW = & $delta $r.LuxWaermeWW $acc $streng
+        $eGs = & $delta $r.LuxStromGes $acc $streng; $qGs = & $delta $r.LuxWaermeGes $acc $streng
         $hinweis = @()
         if ($acc.Cov -lt ($acc.Last - $acc.First + 1)) { $hinweis += 'Lücken im Log' }
+        if (-not $streng -and $null -ne $zaehlerAb -and $null -ne $eGs) { $hinweis += ('Zähler ab {0:dd.MM. HH:mm}' -f $zaehlerAb) }
         if ($bez -ne 'Gesamt' -and $acc.Cov -lt 1380) { $hinweis += 'Tag unvollständig' }
         [pscustomobject][ordered]@{
             Datum                 = $bez
@@ -459,7 +467,7 @@ function Invoke-MyUplinkAuswertung {
         @{ n = 'RL °C'; e = { $_.Ruecklauf_C } }, @{ n = 'Spreiz K'; e = { $_.Spreizung_K } },
         @{ n = 'WP-MK K'; e = { $_.Abstand_WP_Mischer_K } }, @{ n = 'Abtau'; e = { $_.Abtauungen } },
         @{ n = 'WW'; e = { $_.WW_Ladungen } }, @{ n = 'Strom kWh'; e = { $_.Strom_gesamt_kWh } },
-        @{ n = 'Wärme kWh'; e = { if ($null -ne $_.Waerme_gesamt_kWh) { $_.Waerme_gesamt_kWh } else { $_.Waerme_kWh } } },
+        @{ n = 'Wärme kWh'; e = { if ($null -ne $_.Waerme_gesamt_kWh) { $_.Waerme_gesamt_kWh } else { '≈' + $_.Waerme_kWh } } },
         @{ n = 'AZ Hz'; e = { $_.AZ_Heizen } }, @{ n = 'AZ ges'; e = { $_.AZ_gesamt } }, Hinweis -AutoSize |
         Out-String -Width 220 | Write-Host
 

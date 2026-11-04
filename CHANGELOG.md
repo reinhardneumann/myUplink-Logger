@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.3.1 – 2026-11-04
+
+- Auswertung: Tage, für die die Luxtronik-Zähler nicht ab Tagesbeginn geloggt sind, zeigen keine Strom-/Wärmewerte mehr statt 0; Gesamtzeile nennt den Beginn der Zählerdaten
+
 ## 2.3.0 – 2026-11-04
 
 - Neu: `Luxtronik-Modbus.ps1` – liest die Luxtronik direkt über Modbus TCP (nur lesend): Leistungen, Strom- und Wärmezähler, Puffer, Mindestlauf-/Stillstandszeit
