@@ -1,0 +1,135 @@
+# myUplink-Logger
+
+[🇩🇪 Deutsch](README.md) · 🇬🇧 English
+
+A PowerShell tool that reads heat pump values from the official **myUplink API** and logs them to a CSV file. Developed and tested with an **alpha innotec Paros 4-2**; it should work with any device that is online in myUplink.
+
+Why? The myUplink app shows current values but hardly any history. With the log you can analyse cycling (compressor starts, run times, pauses), flow and return temperatures, temperature spread, defrosts and hot water cycles over days and weeks, e.g. in Excel.
+
+- Read-only: the tool never changes anything on the heat pump.
+- No extra software: Windows PowerShell 5.1 or PowerShell 7 is enough.
+- Credentials are stored encrypted per Windows user, never in plain text.
+
+> This is a private project, not affiliated with alpha innotec, ait-deutschland or myUplink.
+
+**Note:** the menu and the built-in help texts are in German. The commands and this README cover everything you need.
+
+## Contents
+
+| File | Purpose |
+| --- | --- |
+| `Start-MyUplink.bat` | Starts the menu by double-click |
+| `MyUplink-Menue.ps1` | Text menu (credentials, test, logger, help) |
+| `MyUplink-Logger.ps1` | The actual functions |
+| `docs/parameter.md` | Parameter reference of a Paros 4-2 (German) |
+
+Keep all files in the same folder.
+
+## Requirements
+
+1. Windows with PowerShell 5.1 or 7.
+2. A myUplink account with the heat pump online.
+3. Your own API application at <https://dev.myuplink.com/apps>. It provides a **Client ID** and a **Client Secret**.
+   - Your normal myUplink login (email and password) does **not** work with the API.
+   - If the form asks for a callback URL: it is not used here, any value will do.
+   - Every user creates their own application. Do not share your credentials.
+
+## Quick start (menu)
+
+1. Download the repository as ZIP ("Code" → "Download ZIP") and extract it, e.g. to `C:\Tools\myuplink-logger`.
+2. If Windows blocks the scripts: right-click each file → Properties → "Unblock", or run `Get-ChildItem C:\Tools\myuplink-logger | Unblock-File` in PowerShell.
+3. Double-click `Start-MyUplink.bat`.
+4. **Option 1** (Zugangsdaten speichern): enter the Client ID as user name and the Client Secret as password.
+5. **Option 2** (Verbindung testen): lists all data points of your system. You can save the list as CSV on the desktop.
+6. **Option 3** (Logger starten): enter the interval (default 5 min) and optionally your own parameter IDs. Keep the window open, stop with Ctrl+C.
+7. **Option 5** (Logdatei zeigen): shows the log file `%USERPROFILE%\myuplink-log.csv` in Explorer.
+
+> The default parameter selection matches the author's Paros 4-2. For other devices run option 2 first and enter the IDs you want in option 3.
+
+## Background operation with Windows Task Scheduler
+
+1. Open Task Scheduler → "Create Task". It must run as the **same Windows user** that saved the credentials.
+2. Trigger: daily, "Repeat task every: 5 minutes", duration "Indefinitely".
+3. Action: program `powershell.exe`, arguments:
+
+   ```
+   -NoProfile -ExecutionPolicy Bypass -Command ". 'C:\Tools\myuplink-logger\MyUplink-Logger.ps1'; Write-MyUplinkLog"
+   ```
+
+4. Optionally, under "Conditions", untick "Start the task only if the computer is on AC power".
+
+Each run reads the last state from the CSV and appends new values only, so no duplicates are created.
+
+## Using the functions in PowerShell
+
+```powershell
+. C:\Tools\myuplink-logger\MyUplink-Logger.ps1      # load functions (dot + space)
+Save-MyUplinkCredential                              # once
+Get-MyUplinkData | Format-Table                      # show all data points
+Get-MyUplinkData -ParameterId 5674,70 | Format-Table # selected IDs only
+Start-MyUplinkLogger -IntervalMinutes 5 -Verbose     # endless loop
+Show-MyUplinkHilfe                                   # help (German)
+```
+
+| Function | Purpose |
+| --- | --- |
+| `Save-MyUplinkCredential` | Store Client ID and Secret encrypted |
+| `Get-MyUplinkData` | Read current data points (`-ParameterId`, `-Name` with wildcards, `-DeviceId`) |
+| `Write-MyUplinkLog` | One polling cycle, appends changed values only |
+| `Start-MyUplinkLogger` | Endless loop at a fixed interval, keeps running on network errors |
+| `Show-MyUplinkHilfe` | Help texts, also via `<Function> -Hilfe` |
+
+## CSV format
+
+Semicolon-separated, UTF-8. One row per data point and change. Column names are German:
+
+| Column | Content |
+| --- | --- |
+| `Abgerufen` | Time of the request (local time) |
+| `Geraet` | Device ID in myUplink |
+| `ParameterId` | ID of the data point |
+| `Name` | Name as reported by myUplink |
+| `Wert` | Numeric value |
+| `Einheit` | Unit, e.g. °C, kW, l/h, bar |
+| `Text` | Text value, e.g. "heating operation", "On" |
+| `Zeitstempel` | Measurement time as reported by myUplink (UTC) |
+
+The file is an **event log**: a value is written only when its myUplink timestamp has changed. For charts, carry each value forward until the next entry (e.g. `ffill()` in pandas).
+
+**Decimal separator:** defaults to the Windows setting (comma on German systems). Force it with `Start-MyUplink.bat -Dezimaltrennzeichen "."` or per call `Write-MyUplinkLog -Dezimaltrennzeichen '.'`.
+
+## Default parameters
+
+`0, 1, 2, 3, 5, 6, 17, 21, 22, 23, 31, 32, 33, 39, 45, 46, 57, 66, 67, 70, 5001, 5668, 5674, 5700, 5728, 5729`
+
+Meaning and other available IDs: [docs/parameter.md](docs/parameter.md). IDs may differ between devices and firmware versions.
+
+## Analysis tips
+
+- **Cycling:** compressor starts (5674) and run times from the On/Off changes of VD1 (70). Rule of thumb: runs of at least 20 to 30 minutes and no more than about 3 starts per hour are healthy.
+- **Spread:** flow (0) minus return (1), only while the compressor runs. During pauses the pump often stops, so those values are not meaningful.
+- **Mixing circuit:** the gap between heat pump flow (0) and mixing circuit flow (23). A large gap means the heat pump produces higher temperatures than the radiators need.
+- **Mark experiments:** "temperature + -" (5001) and heating limit (5700) are logged, so setting changes are visible in the log.
+- **COP:** the myUplink API provides no electrical power for the Paros. A separate electricity meter is needed for a COP.
+
+## Privacy
+
+The CSV contains the device ID (part of which matches the MAC address). Remove the `Geraet` column before sharing logs. Credentials are encrypted with Windows DPAPI in `%USERPROFILE%\.myuplink\credential.xml` and can only be read by the same user on the same computer.
+
+## Troubleshooting
+
+| Problem | Fix |
+| --- | --- |
+| Script does not start, security warning | Unblock the files (`Unblock-File`), see quick start |
+| `401 Unauthorized` | Check Client ID/Secret, save them again with option 1 |
+| No devices found | Is the heat pump online in the myUplink app? Was the API app created with the same account? |
+| Scheduled task writes nothing | The task runs as a different user than the one who saved the credentials |
+| Excel shows 40 instead of 4.0 | Set the decimal separator, see CSV format |
+
+## Contributing
+
+Feedback from other devices is welcome, especially parameter lists (option 2, remove the `Geraet` column first). Please report bugs and ideas as an [issue](../../issues).
+
+## License
+
+[MIT](LICENSE)

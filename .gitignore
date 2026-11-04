@@ -1,0 +1,12 @@
+# Logdaten und Parameterlisten (enthalten Geraete-ID / MAC)
+*.csv
+*.log
+
+# Zugangsdaten, falls versehentlich im Projektordner gespeichert
+credential.xml
+.myuplink/
+
+# System
+Thumbs.db
+desktop.ini
+.DS_Store
