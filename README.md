@@ -117,12 +117,13 @@ Invoke-MyUplinkAuswertung -Von 2026-11-05 -Bis 2026-11-11   # Zeitraum
 Invoke-MyUplinkAuswertung -Hilfe
 ```
 
-Im Fenster erscheint eine Tabelle pro Tag plus Gesamtzeile, darunter die Einstellungsänderungen (Offset, Heizgrenze) und eine Einschätzung nach Faustregeln. Zusätzlich entstehen zwei Dateien im Ordner der Logdatei:
+Im Fenster erscheint eine Tabelle pro Tag plus Gesamtzeile, darunter die Einstellungsänderungen (Offset, Heizgrenze), ein Vergleich des Heizbetriebs je Wert von „Temperatur + −“ und eine Einschätzung nach Faustregeln. Zusätzlich entstehen drei Dateien im Ordner der Logdatei:
 
 | Datei | Inhalt |
 | --- | --- |
-| `myuplink-auswertung-tage.csv` | Pro Tag: Abdeckung, Außentemperatur, Starts, Laufzeit, Ø/min/max Lauf, Ø Pause, Starts je Laufstunde, Vorlauf, Rücklauf, Spreizung, Mischerkreis, Abstand WP-Mischer, Abtauungen, Warmwasser, Wärmemenge, Offset, Heizgrenze |
-| `myuplink-auswertung-zyklen.csv` | Pro Verdichterlauf: Start, Ende, Dauer, Pause davor, Mittelwerte, Abtauungen, Warmwasser-Minuten, Status |
+| `myuplink-auswertung-tage.csv` | Pro Tag: Abdeckung, Außentemperatur, Starts, Laufzeit, Ø/min/max Lauf, Ø Pause, Starts je Laufstunde, Vorlauf, Rücklauf, Spreizung, Mischerkreis Ist/Soll/Abweichung, Abstand WP-Mischer, Rücklauf extern, Abtauungen, Warmwasser, Laufzeit HUP/ZUP (ZUP auch ohne Verdichter), Wärmemenge, Offset, Heizgrenze |
+| `myuplink-auswertung-zyklen.csv` | Pro Verdichterlauf: Start, Ende, Dauer, Pause davor, Mittelwerte (inkl. Mischerkreis Soll/Abweichung, Rücklauf extern), Abtauungen, Warmwasser-Minuten, Status |
+| `myuplink-auswertung-einstellungen.csv` | Pro Wert von „Temperatur + −“: ab wann, Heizstunden, Außentemperatur, Vorlauf, Rücklauf, Mischerkreis Soll/Ist, Abstand WP-Mischer. Zeigt, wie eine Änderung wirkt. |
 
 So wird gerechnet:
 

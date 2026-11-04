@@ -117,12 +117,13 @@ Invoke-MyUplinkAuswertung -Von 2026-11-05 -Bis 2026-11-11   # date range (Von = 
 Invoke-MyUplinkAuswertung -Hilfe
 ```
 
-The console shows one row per day plus a total row, the setting changes (offset, heating limit) and a rule-of-thumb assessment. Two files are written next to the log file:
+The console shows one row per day plus a total row, the setting changes (offset, heating limit), a comparison of heating operation per value of "temperature + -" and a rule-of-thumb assessment. Three files are written next to the log file:
 
 | File | Content |
 | --- | --- |
-| `myuplink-auswertung-tage.csv` | Per day: coverage, outdoor temperature, starts, run time, avg/min/max run, avg pause, starts per run hour, flow, return, spread, mixing circuit, heat pump vs. mixing circuit gap, defrosts, hot water, heat, offset, heating limit |
-| `myuplink-auswertung-zyklen.csv` | Per compressor run: start, end, duration, preceding pause, averages, defrosts, hot water minutes, status |
+| `myuplink-auswertung-tage.csv` | Per day: coverage, outdoor temperature, starts, run time, avg/min/max run, avg pause, starts per run hour, flow, return, spread, mixing circuit actual/target/deviation, heat pump vs. mixing circuit gap, external return, defrosts, hot water, HUP/ZUP pump run time (ZUP also without compressor), heat, offset, heating limit |
+| `myuplink-auswertung-zyklen.csv` | Per compressor run: start, end, duration, preceding pause, averages (incl. mixing circuit target/deviation, external return), defrosts, hot water minutes, status |
+| `myuplink-auswertung-einstellungen.csv` | Per value of "temperature + -": since when, heating hours, outdoor temperature, flow, return, mixing circuit target/actual, heat pump vs. mixing circuit gap. Shows the effect of a change. |
 
 How it works:
 

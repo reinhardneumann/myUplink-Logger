@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.0 – 2026-11-04
+
+- Auswertung nutzt jetzt auch Mischerkreis-Soll (22), Rücklauf extern (3), HUP (32) und ZUP (33)
+- Neue Spalten: Mischerkreis Soll und Abweichung, Rücklauf extern, Laufzeit HUP/ZUP, ZUP ohne Verdichter
+- Neu: Vergleich des Heizbetriebs je Wert von „Temperatur + −“ (Fenster und `myuplink-auswertung-einstellungen.csv`)
+
 ## 2.1.0 – 2026-11-04
 
 - Neu: `MyUplink-Auswertung.ps1` mit `Invoke-MyUplinkAuswertung` – Verdichterzyklen, Tageswerte, Abtauungen, Warmwasser, Einstellungsänderungen und Einschätzung nach Faustregeln, Ausgabe zusätzlich als CSV
