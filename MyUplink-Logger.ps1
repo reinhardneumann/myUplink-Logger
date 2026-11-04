@@ -56,6 +56,10 @@ Funktionen:
   Start-MyUplinkLogger      Dauerschleife, ruft Write-MyUplinkLog im Intervall auf
   Show-MyUplinkHilfe        Diese Hilfe
 
+Luxtronik direkt (Datei Luxtronik-Modbus.ps1, im Menü Punkt 7):
+  Set-LuxtronikIP <IP>      IP der Steuerung merken; der Logger liest dann zusätzlich über Modbus TCP
+  Show-LuxtronikModbus      Werte, momentanen COP und Arbeitszahlen anzeigen
+
 Auswertung (Datei MyUplink-Auswertung.ps1, im Menü Punkt 6):
   Invoke-MyUplinkAuswertung Takte, Laufzeiten, Tageswerte und Hinweise aus der CSV (-Hilfe für Details)
 
@@ -97,7 +101,7 @@ Beispiele:
   Get-MyUplinkData -ParameterId 5674,5668 | Format-Table Name,Wert,Einheit,Zeitstempel
 '@
 'Write-MyUplinkLog' = @'
-Write-MyUplinkLog [-OutFile <csv>] [-CredentialPath <Datei>] [-ParameterId <id,...>] [-Name <muster,...>] [-Dezimaltrennzeichen <Auto|,|.>] [-Verbose] [-Hilfe]
+Write-MyUplinkLog [-OutFile <csv>] [-CredentialPath <Datei>] [-ParameterId <id,...>] [-Name <muster,...>] [-Dezimaltrennzeichen <Auto|,|.>] [-LuxtronikIP <IP>] [-Verbose] [-Hilfe]
 
 Ein einzelner Abrufzyklus. Hängt nur Zeilen an die CSV an, deren Zeitstempel sich seit
 dem letzten Eintrag geändert hat. Der letzte Stand wird beim ersten Aufruf aus der CSV
@@ -108,6 +112,8 @@ gelesen, sodass nach einem Neustart keine Duplikate entstehen.
                 wie es deutsches Excel erwartet. Mit ',' oder '.' lässt es sich erzwingen.
                 Alias: -Dezimalkennzeichen. Die Vorgabe lässt sich auch beim Laden des Skripts setzen:
                 . .\MyUplink-Logger.ps1 -Dezimaltrennzeichen ','
+  -LuxtronikIP  IP der Steuerung für Modbus TCP; Standard: mit Set-LuxtronikIP gespeicherte IP.
+                Luxtronik-Werte stehen mit ID MB<Register> in derselben CSV (nur bei Änderung).
   -Verbose      zeigt, wie viele neue Werte geschrieben wurden
 Geeignet für die Windows-Aufgabenplanung (alle paar Minuten starten).
 Die CSV ist ein Ereignisprotokoll: Für Diagramme jeden Wert bis zum nächsten auffüllen.
@@ -231,6 +237,25 @@ function Get-MyUplinkData {
 $script:DefaultLogParameterIds = @(0,1,2,3,5,6,17,21,22,23,31,32,33,39,45,46,57,66,67,70,5001,5668,5674,5700,5728,5729)
 $script:LastSeen = $null
 
+# Optional: Werte direkt aus der Luxtronik (Modbus TCP) mitloggen, siehe Luxtronik-Modbus.ps1
+$script:LuxtronikModul = Join-Path $PSScriptRoot 'Luxtronik-Modbus.ps1'
+if (Test-Path $script:LuxtronikModul) { . $script:LuxtronikModul }
+
+function ConvertTo-MuSignatur($Wert) {
+    # Vergleichswert für Modbus-Zeilen (dort gibt es keinen Messzeitstempel, also zählt der Wert)
+    $t = ([string]$Wert).Trim()
+    if ($t.Contains(',') -and -not $t.Contains('.')) { $t = $t.Replace(',', '.') }
+    $d = 0.0
+    if ([double]::TryParse($t, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$d)) {
+        return 'V:' + $d.ToString([Globalization.CultureInfo]::InvariantCulture)
+    }
+    return 'V:' + $t
+}
+
+function Get-MuLuxtronikVorgabe {
+    if (Get-Command Get-LuxtronikIP -ErrorAction SilentlyContinue) { Get-LuxtronikIP }
+}
+
 function Write-MyUplinkLog {
     <#
     .SYNOPSIS
@@ -246,6 +271,7 @@ function Write-MyUplinkLog {
         [Alias('Dezimalkennzeichen')]
         [ValidateSet('Auto', ',', '.')]
         [string]$Dezimaltrennzeichen = $script:DefaultDezimaltrennzeichen,   # Auto = Einstellung von Windows (wie in Excel)
+        [string]$LuxtronikIP = (Get-MuLuxtronikVorgabe),   # leer = keine Modbus-Abfrage
         [switch]$Hilfe
     )
 
@@ -256,20 +282,43 @@ function Write-MyUplinkLog {
         $script:LastSeen = @{}
         if (Test-Path $OutFile) {
             Import-Csv -Path $OutFile -Delimiter ';' | ForEach-Object {
-                $script:LastSeen["$($_.Geraet)|$($_.ParameterId)"] = [string]$_.Zeitstempel
+                if ([string]$_.ParameterId -like 'MB*') { $script:LastSeen["$($_.Geraet)|$($_.ParameterId)"] = ConvertTo-MuSignatur $_.Wert }
+                else { $script:LastSeen["$($_.Geraet)|$($_.ParameterId)"] = [string]$_.Zeitstempel }
             }
         }
     }
 
-    $neu = @(
-        foreach ($row in Get-MyUplinkData -CredentialPath $CredentialPath -ParameterId $ParameterId -Name $Name) {
-            $key = "$($row.Geraet)|$($row.ParameterId)"
-            if ($script:LastSeen[$key] -ne [string]$row.Zeitstempel) {
-                $script:LastSeen[$key] = [string]$row.Zeitstempel
-                $row
-            }
+    # Luxtronik (Modbus): nur Werte schreiben, die sich seit dem letzten Eintrag geändert haben
+    $neuLux = @()
+    if ($LuxtronikIP -and (Get-Command Get-LuxtronikModbusData -ErrorAction SilentlyContinue)) {
+        try {
+            $neuLux = @(
+                foreach ($row in Get-LuxtronikModbusData -IP $LuxtronikIP) {
+                    $key = "$($row.Geraet)|$($row.ParameterId)"
+                    $sig = ConvertTo-MuSignatur $row.Wert
+                    if ($script:LastSeen[$key] -ne $sig) { $script:LastSeen[$key] = $sig; $row }
+                }
+            )
         }
-    )
+        catch { Write-Warning "$(Get-Date -Format s) Luxtronik (Modbus) nicht erreichbar: $($_.Exception.Message)" }
+    }
+
+    # myUplink: nur Zeilen, deren Messzeitpunkt sich geändert hat
+    $fehler = $null
+    $neu = @()
+    try {
+        $neu = @(
+            foreach ($row in Get-MyUplinkData -CredentialPath $CredentialPath -ParameterId $ParameterId -Name $Name) {
+                $key = "$($row.Geraet)|$($row.ParameterId)"
+                if ($script:LastSeen[$key] -ne [string]$row.Zeitstempel) {
+                    $script:LastSeen[$key] = [string]$row.Zeitstempel
+                    $row
+                }
+            }
+        )
+    }
+    catch { $fehler = $_ }
+    $neu = @($neuLux) + @($neu)
 
     # Dezimaltrennzeichen für die CSV (Excel liest "4.0" in deutscher Einstellung sonst als 40)
     $nfi = [Globalization.NumberFormatInfo](Get-Culture).NumberFormat.Clone()
@@ -283,7 +332,8 @@ function Write-MyUplinkLog {
     if ($neu.Count -gt 0) {
         $neu | Export-Csv -Path $OutFile -Append -NoTypeInformation -Delimiter ';' -Encoding UTF8
     }
-    Write-Verbose "$(Get-Date -Format s): $($neu.Count) neue Werte geschrieben"
+    Write-Verbose "$(Get-Date -Format s): $($neu.Count) neue Werte geschrieben (davon $($neuLux.Count) aus der Luxtronik)"
+    if ($fehler) { throw $fehler }
 }
 
 function Start-MyUplinkLogger {
@@ -303,15 +353,17 @@ function Start-MyUplinkLogger {
         [Alias('Dezimalkennzeichen')]
         [ValidateSet('Auto', ',', '.')]
         [string]$Dezimaltrennzeichen = $script:DefaultDezimaltrennzeichen,
+        [string]$LuxtronikIP = (Get-MuLuxtronikVorgabe),
         [switch]$Hilfe
     )
 
     if ($Hilfe) { Show-MyUplinkHilfe -Funktion Start-MyUplinkLogger; return }
 
     Write-Host "Logger läuft, Intervall $IntervalMinutes min, Datei $OutFile (Abbruch mit Strg+C)"
+    if ($LuxtronikIP) { Write-Host "Zusätzlich Luxtronik über Modbus: $LuxtronikIP" }
     while ($true) {
         try {
-            Write-MyUplinkLog -OutFile $OutFile -CredentialPath $CredentialPath -ParameterId $ParameterId -Name $Name -Dezimaltrennzeichen $Dezimaltrennzeichen
+            Write-MyUplinkLog -OutFile $OutFile -CredentialPath $CredentialPath -ParameterId $ParameterId -Name $Name -Dezimaltrennzeichen $Dezimaltrennzeichen -LuxtronikIP $LuxtronikIP
         }
         catch {
             Write-Warning "$(Get-Date -Format s) Abruf fehlgeschlagen: $($_.Exception.Message)"

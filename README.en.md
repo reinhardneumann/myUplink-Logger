@@ -2,7 +2,7 @@
 
 [🇩🇪 Deutsch](README.md) · 🇬🇧 English
 
-A PowerShell tool that reads heat pump values from the official **myUplink API** and logs them to a CSV file. Developed and tested with an **alpha innotec Paros 4-2**; it should work with any device that is online in myUplink.
+A PowerShell tool that reads heat pump values from the official **myUplink API** and optionally directly from the **Luxtronik controller (Modbus TCP)**, and logs them to a CSV file. Developed and tested with an **alpha innotec Paros 4-2**; it should work with any device that is online in myUplink.
 
 Why? The myUplink app shows current values but hardly any history. With the log you can analyse cycling (compressor starts, run times, pauses), flow and return temperatures, temperature spread, defrosts and hot water cycles over days and weeks, e.g. in Excel.
 
@@ -21,7 +21,8 @@ Why? The myUplink app shows current values but hardly any history. With the log 
 | `Start-MyUplink.bat` | Starts the menu by double-click |
 | `MyUplink-Menue.ps1` | Text menu (credentials, test, logger, help) |
 | `MyUplink-Logger.ps1` | The actual functions |
-| `MyUplink-Auswertung.ps1` | Log analysis (cycles, daily figures) |
+| `MyUplink-Auswertung.ps1` | Log analysis (cycles, daily figures, seasonal performance) |
+| `Luxtronik-Modbus.ps1` | Optional: values directly from the Luxtronik via Modbus TCP (electricity, heat, COP) |
 | `docs/parameter.md` | Parameter reference of a Paros 4-2 (German) |
 
 Keep all files in the same folder.
@@ -45,6 +46,7 @@ Keep all files in the same folder.
 6. **Option 3** (Logger starten): enter the interval (default 5 min) and optionally your own parameter IDs. Keep the window open, stop with Ctrl+C.
 7. **Option 5** (Logdatei zeigen): shows the log file `%USERPROFILE%\myuplink-log.csv` in Explorer.
 8. **Option 6** (Logdatei auswerten): analyses the log, optionally for a date range (see [Analysis](#analysis)).
+9. **Option 7** (Luxtronik direkt): set the Luxtronik IP and show its values (see [Luxtronik direct](#luxtronik-direct-modbus-tcp)).
 
 > The default parameter selection matches the author's Paros 4-2. For other devices run option 2 first and enter the IDs you want in option 3.
 
@@ -106,6 +108,31 @@ The file is an **event log**: a value is written only when its myUplink timestam
 
 Meaning and other available IDs: [docs/parameter.md](docs/parameter.md). IDs may differ between devices and firmware versions.
 
+## Luxtronik direct (Modbus TCP)
+
+Many alpha innotec heat pumps (e.g. Paros) use a **Luxtronik** controller. From firmware 3.90.1 it offers a smart home interface via Modbus TCP with values myUplink does not provide:
+
+- current electrical power input and heat output, giving the **instantaneous COP**
+- **electricity counters** total, heating, hot water (3.90.1+) and **heat counters** total, heating, hot water (3.92.0+), giving the **seasonal performance factors**
+- buffer configuration, minimum run time and minimum off time
+
+**Setup**
+
+1. On the controller, under **Smart Home**, set **"ModBus TCP" to "Ein" (on)**. Status "Standby" is normal while nothing is connected.
+2. Find the **IP address of the controller**, e.g. in your router via the MAC address shown in myUplink (parameter 40011). Note: a separate network module may have its own IP.
+3. **Option 7**: enter the IP. Values are shown immediately and the IP is saved (`%USERPROFILE%\.myuplink\luxtronik-ip.txt`).
+4. Restart the logger (option 3 or Task Scheduler). Luxtronik values are written to the same CSV with IDs like `MB10301`, only when they change.
+
+In PowerShell:
+
+```powershell
+. C:\Tools\myuplink-logger\MyUplink-Logger.ps1      # also loads Luxtronik-Modbus.ps1
+Set-LuxtronikIP 192.168.178.33
+Show-LuxtronikModbus
+```
+
+The tool **only reads** (Modbus function 04, input registers) and never writes to the controller. Electricity and heat counters are calculated by the controller itself, not by a calibrated meter, but they are well suited for comparisons. Register list: [docs/parameter.md](docs/parameter.md#luxtronik-modbus-tcp).
+
 ## Analysis
 
 `MyUplink-Auswertung.ps1` reads the log file and builds a daily summary. It does not contact myUplink and can run at any time, even while the logger is active.
@@ -130,7 +157,7 @@ How it works:
 - **Run time and cycles** from the switching times of VD1 (70), **starts** from counter 5674. If they differ, some runs were shorter than the polling interval.
 - **Temperature averages** in heating mode only (operation mode 0), skipping the first 10 minutes of each run (`-EinschwingMinuten`) as well as defrost and hot water phases.
 - **Gaps:** if two polls are more than 30 minutes apart (e.g. PC switched off), that time is excluded (`-LueckeMinuten`, 0 = off). Affected days and runs are marked.
-- **Heat** is integrated from "Heating capacity" (21), so it is an estimate only.
+- **Heat** is integrated from "Heating capacity" (21), so it is an estimate only. If the Luxtronik is logged via Modbus, electricity, heat and **daily performance factors** (heating, hot water, total) come from its counters, plus the **COP per run** and **per "temperature + -" setting**.
 
 One month of log data takes about 20 seconds.
 
@@ -140,7 +167,7 @@ One month of log data takes about 20 seconds.
 - **Spread:** flow (0) minus return (1), only while the compressor runs. During pauses the pump often stops, so those values are not meaningful.
 - **Mixing circuit:** the gap between heat pump flow (0) and mixing circuit flow (23). A large gap means the heat pump produces higher temperatures than the radiators need.
 - **Mark experiments:** "temperature + -" (5001) and heating limit (5700) are logged, so setting changes are visible in the log.
-- **COP:** the myUplink API provides no electrical power for the Paros. A separate electricity meter is needed for a COP.
+- **COP:** the myUplink API provides no electrical power. The Luxtronik (Modbus) provides power and counters directly, see above.
 
 ## Privacy
 

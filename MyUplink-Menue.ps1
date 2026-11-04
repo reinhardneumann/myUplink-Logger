@@ -32,6 +32,7 @@ function Show-Menue {
     Write-Host '  4  Hilfe'
     Write-Host '  5  Logdatei im Explorer zeigen'
     Write-Host '  6  Logdatei auswerten (Takte, Tageswerte)'
+    Write-Host '  7  Luxtronik direkt (Modbus): IP festlegen / Werte anzeigen'
     Write-Host '  0  Beenden'
     Write-Host ''
 }
@@ -118,6 +119,23 @@ while ($true) {
                 if ($bis) { $param.Bis = [datetime]::ParseExact($bis, 'dd.MM.yyyy', $de) }
                 Write-Host ''
                 Invoke-MyUplinkAuswertung @param
+                Warte
+            }
+            '7' {
+                Write-Host ''
+                $akt = Get-LuxtronikIP
+                Write-Host "Gespeicherte Luxtronik-IP: $(if ($akt) { $akt } else { '(keine)' })"
+                Write-Host 'Voraussetzung: im Regler unter Smart Home „ModBus TCP“ = Ein. Die IP ist die der Steuerung (MAC laut myUplink).'
+                $neuIp = Read-Host 'Neue IP (leer = behalten, - = entfernen)'
+                if ($neuIp -eq '-') { Set-LuxtronikIP '' }
+                elseif ($neuIp) { Set-LuxtronikIP $neuIp.Trim() }
+                $ip = Get-LuxtronikIP
+                if ($ip) {
+                    Write-Host ''
+                    Show-LuxtronikModbus -IP $ip
+                    Write-Host ''
+                    Write-Host 'Der Logger (Menüpunkt 3 bzw. Aufgabenplanung) liest diese Werte ab dem nächsten Start mit.'
+                }
                 Warte
             }
             '0' { return }

@@ -98,3 +98,31 @@ Die Stundenzähler zählen nur volle Stunden.
 Elektrische Leistung und elektrische Energie liefert die API bei der Paros nicht. Für einen COP ist ein separater Stromzähler nötig.
 
 Ergänzungen und Korrekturen bitte als Issue oder Pull Request.
+
+## Luxtronik (Modbus TCP)
+
+Input-Register der Smart-Home-Schnittstelle (Modbus-Funktion 04, Unit 1, Port 502), wie sie `Luxtronik-Modbus.ps1` liest. Adresse = 10000 + Index. Im Log steht die ID als `MB` + Adresse. Quelle: Registerliste von [python-luxtronik](https://github.com/Bouni/python-luxtronik), geprüft an einer Paros 4-2 mit Firmware 3.92.3.
+
+| Adresse | Inhalt | Einheit | ab Firmware |
+| --- | --- | --- | --- |
+| 10000 | Statusbits (1 = Verdichter 1 an) | – | 3.90.1 |
+| 10002 | Betriebszustand (0 Heizen, 1 Warmwasser, 4 Abtauen, 5 keine Anforderung) | – | 3.90.1 |
+| 10003, 10004 | Status Heizen / Warmwasser | – | 3.90.1 |
+| 10100 / 10101 / 10102 | Rücklauf / Rücklauf-Soll / Rücklauf extern | °C | 3.90.1 |
+| 10105 | Vorlauf | °C | 3.90.1 |
+| 10108 / 10109 | Außentemperatur / Mittel | °C | 3.90.1 / 3.92.0 |
+| 10112 | Max. Vorlauftemperatur | °C | 3.92.0 |
+| 10120 / 10121 | Warmwasser / Soll | °C | 3.90.1 |
+| 10140 / 10141 | Mischerkreis 1 Vorlauf / Soll | °C | 3.90.1 |
+| 10201 | Fehlernummer (0 = keine) | – | 3.90.1 |
+| 10202 | Puffer (0 Reihen-, 1 Trenn-, 2 Multifunktionspuffer) | – | 3.90.1 |
+| 10203 / 10204 | Mindeststillstandszeit / Mindestlaufzeit | min | 3.90.1 |
+| 10300 | Heizleistung aktuell | kW | 3.90.1 |
+| 10301 | Leistungsaufnahme elektrisch aktuell | kW | 3.90.1 |
+| 10310 / 10312 / 10314 | Strom gesamt / Heizen / Warmwasser (je 2 Register) | kWh | 3.90.1 |
+| 10320 / 10322 / 10324 | Wärme gesamt / Heizen / Warmwasser (je 2 Register) | kWh | 3.92.0 |
+| 10400 | Firmware (3 Register) | – | 3.90.1 |
+
+Register 10107 (laut Liste „Heizgrenze“) zeigte an der Paros 34,4 °C statt der eingestellten 17 °C. Die Bedeutung ist unklar, daher wird es nicht geloggt.
+
+Die ältere TCP-Schnittstelle der Luxtronik (Port 8888/8889) antwortet bei Firmware 3.92.3 nicht mehr.

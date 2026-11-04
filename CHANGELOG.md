@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.3.0 – 2026-11-04
+
+- Neu: `Luxtronik-Modbus.ps1` – liest die Luxtronik direkt über Modbus TCP (nur lesend): Leistungen, Strom- und Wärmezähler, Puffer, Mindestlauf-/Stillstandszeit
+- Logger schreibt die Luxtronik-Werte optional in dieselbe CSV (IDs `MB…`, nur bei Änderung); IP per `Set-LuxtronikIP` bzw. Menüpunkt 7
+- Auswertung: Strom, Wärme und Arbeitszahlen pro Tag (Heizen, Warmwasser, gesamt), COP je Lauf und je Einstellung „Temperatur + −“
+- Menüpunkt 7 „Luxtronik direkt (Modbus)“
+
 ## 2.2.0 – 2026-11-04
 
 - Auswertung nutzt jetzt auch Mischerkreis-Soll (22), Rücklauf extern (3), HUP (32) und ZUP (33)

@@ -30,6 +30,15 @@ $script:MuId = @{
     RuecklaufExt  = '3'
     HUP           = '32'
     ZUP           = '33'
+    # Luxtronik direkt (Modbus TCP), ID = MB + Registeradresse
+    LuxPth        = 'MB10300'
+    LuxPel        = 'MB10301'
+    LuxStromGes   = 'MB10310'
+    LuxStromHz    = 'MB10312'
+    LuxStromWW    = 'MB10314'
+    LuxWaermeGes  = 'MB10320'
+    LuxWaermeHz   = 'MB10322'
+    LuxWaermeWW   = 'MB10324'
     Durchfluss    = '31'
     Verdichter    = '70'
     Impulse       = '5674'
@@ -125,7 +134,8 @@ function Invoke-MyUplinkAuswertung {
     $zeilen = @(Import-Csv -Path $LogFile -Delimiter ';' -Encoding UTF8)
     if ($zeilen.Count -eq 0) { throw 'Die Logdatei enthält keine Daten.' }
 
-    $geraete = @($zeilen | ForEach-Object { $_.Geraet } | Select-Object -Unique)
+    $geraete = @($zeilen | Where-Object { [string]$_.ParameterId -notlike 'MB*' } | ForEach-Object { $_.Geraet } | Select-Object -Unique)
+    if ($geraete.Count -eq 0) { $geraete = @($zeilen[0].Geraet) }
     if (-not $DeviceId) {
         $DeviceId = $geraete[0]
         if ($geraete.Count -gt 1) { Write-Warning "Mehrere Geräte in der Datei, ausgewertet wird $DeviceId (Auswahl mit -DeviceId)." }
@@ -134,7 +144,7 @@ function Invoke-MyUplinkAuswertung {
     $roh = @{}
     $abrufe = New-Object 'System.Collections.Generic.HashSet[long]'
     foreach ($z in $zeilen) {
-        if ($z.Geraet -ne $DeviceId) { continue }
+        if ($z.Geraet -ne $DeviceId -and [string]$z.ParameterId -notlike 'MB*') { continue }
         try {
             $a = [datetime]::Parse($z.Abgerufen, $inv)
             $t = [DateTimeOffset]::Parse($z.Zeitstempel, $inv).LocalDateTime
@@ -216,6 +226,7 @@ function Invoke-MyUplinkAuswertung {
 
         $mVL = New-MuMittel; $mRL = New-MuMittel; $mAT = New-MuMittel; $mMK = New-MuMittel; $mP = New-MuMittel; $mQ = New-MuMittel
         $mMS = New-MuMittel; $mMA = New-MuMittel; $mRX = New-MuMittel
+        $sumPth = 0.0; $sumPel = 0.0; $mPel = New-MuMittel
         $ww = 0; $luecke = $false
         for ($k = [math]::Max($i0, 0); $k -lt [math]::Min($i1, $n); $k++) {
             $alter[$k] = $k - $i0
@@ -227,6 +238,8 @@ function Invoke-MyUplinkAuswertung {
                 Add-MuMittel $mMK $r.MischerIst[$k]; Add-MuMittel $mP $r.Leistung[$k]; Add-MuMittel $mQ $r.Durchfluss[$k]
                 Add-MuMittel $mMS $r.MischerSoll[$k]; Add-MuMittel $mRX $r.RuecklaufExt[$k]
                 Add-MuMittel $mMA ($r.MischerIst[$k] - $r.MischerSoll[$k])
+                Add-MuMittel $mPel $r.LuxPel[$k]
+                if (-not [double]::IsNaN($r.LuxPth[$k]) -and -not [double]::IsNaN($r.LuxPel[$k])) { $sumPth += $r.LuxPth[$k]; $sumPel += $r.LuxPel[$k] }
             }
             Add-MuMittel $mAT $r.Aussen[$k]
         }
@@ -263,6 +276,8 @@ function Invoke-MyUplinkAuswertung {
             Mischer_Abw_K      = Get-MuMittel $mMA
             Ruecklauf_ext_C    = Get-MuMittel $mRX
             Leistung_kW        = Get-MuMittel $mP 2
+            Leistung_el_kW     = Get-MuMittel $mPel 2
+            COP                = $(if ($sumPel -gt 0) { [math]::Round($sumPth / $sumPel, 2) } else { $null })
             Durchfluss_lh      = Get-MuMittel $mQ 0
             Abtauungen         = $abtau
             WW_min             = $ww
@@ -302,13 +317,14 @@ function Invoke-MyUplinkAuswertung {
             $o = $r.Offset[$k]
             if (-not $proOffset.Contains($o)) {
                 $proOffset[$o] = @{ Ab = [datetime]($start + $k * $tpm); Min = 0; AT = (New-MuMittel); VL = (New-MuMittel)
-                                    RL = (New-MuMittel); MK = (New-MuMittel); MS = (New-MuMittel); Abst = (New-MuMittel) }
+                                    RL = (New-MuMittel); MK = (New-MuMittel); MS = (New-MuMittel); Abst = (New-MuMittel); Pth = 0.0; Pel = 0.0 }
             }
             $g = $proOffset[$o]
             $g.Min++
             Add-MuMittel $g.AT $r.Aussen[$k]; Add-MuMittel $g.VL $r.Vorlauf[$k]; Add-MuMittel $g.RL $r.Ruecklauf[$k]
             Add-MuMittel $g.MK $r.MischerIst[$k]; Add-MuMittel $g.MS $r.MischerSoll[$k]
             Add-MuMittel $g.Abst ($r.Vorlauf[$k] - $r.MischerIst[$k])
+            if (-not [double]::IsNaN($r.LuxPth[$k]) -and -not [double]::IsNaN($r.LuxPel[$k])) { $g.Pth += $r.LuxPth[$k]; $g.Pel += $r.LuxPel[$k] }
         }
         foreach ($acc in @($tage[$tag], $gesamt)) {
             if ($acc.First -lt 0) { $acc.First = $k }
@@ -340,6 +356,17 @@ function Invoke-MyUplinkAuswertung {
     }
 
     $imp = $r.Impulse
+    $delta = {
+        # Zählerzuwachs im Tagesbereich: letzter Wert minus Wert vor Tagesbeginn (bzw. erster Wert im Tag)
+        param($arr, $acc)
+        $ende = [double]::NaN; $anf = [double]::NaN
+        for ($k = $acc.Last; $k -ge $acc.First; $k--) { if (-not [double]::IsNaN($arr[$k])) { $ende = $arr[$k]; break } }
+        if ($acc.First -gt 0 -and -not [double]::IsNaN($arr[$acc.First - 1])) { $anf = $arr[$acc.First - 1] }
+        else { for ($k = $acc.First; $k -le $acc.Last; $k++) { if (-not [double]::IsNaN($arr[$k])) { $anf = $arr[$k]; break } } }
+        if ([double]::IsNaN($ende) -or [double]::IsNaN($anf)) { return $null }
+        [math]::Round($ende - $anf, 1) + 0.0
+    }
+    $quote = { param($q, $e) if ($null -ne $q -and $null -ne $e -and $e -gt 0) { [math]::Round($q / $e, 2) } else { $null } }
     $baueZeile = {
         param($bez, $acc, $zyk, $abtauN, $wwN)
         $iA = if ($acc.First -gt 0) { $acc.First - 1 } else { $acc.First }
@@ -350,6 +377,9 @@ function Invoke-MyUplinkAuswertung {
         $pausen = @($zyk | Where-Object { $null -ne $_.Pause_vorher_min } | ForEach-Object { [double]$_.Pause_vorher_min })
         $lzh = [math]::Round($acc.An / 60.0, 1)
         $vl = Get-MuMittel $acc.VL; $rl = Get-MuMittel $acc.RL
+        $eHz = & $delta $r.LuxStromHz $acc; $qHz = & $delta $r.LuxWaermeHz $acc
+        $eWW = & $delta $r.LuxStromWW $acc; $qWW = & $delta $r.LuxWaermeWW $acc
+        $eGs = & $delta $r.LuxStromGes $acc; $qGs = & $delta $r.LuxWaermeGes $acc
         $hinweis = @()
         if ($acc.Cov -lt ($acc.Last - $acc.First + 1)) { $hinweis += 'Lücken im Log' }
         if ($bez -ne 'Gesamt' -and $acc.Cov -lt 1380) { $hinweis += 'Tag unvollständig' }
@@ -381,6 +411,15 @@ function Invoke-MyUplinkAuswertung {
             ZUP_h                 = $(if ($acc.ZUPn -gt 0) { [math]::Round($acc.ZUP / 60.0, 1) } else { $null })
             ZUP_ohne_Verdichter_h = $(if ($acc.ZUPn -gt 0) { [math]::Round($acc.ZUPaus / 60.0, 1) } else { $null })
             Waerme_kWh            = [math]::Round($acc.kWh, 1)
+            Strom_Heizen_kWh      = $eHz
+            Waerme_Heizen_kWh     = $qHz
+            AZ_Heizen             = & $quote $qHz $eHz
+            Strom_WW_kWh          = $eWW
+            Waerme_WW_kWh         = $qWW
+            AZ_WW                 = & $quote $qWW $eWW
+            Strom_gesamt_kWh      = $eGs
+            Waerme_gesamt_kWh     = $qGs
+            AZ_gesamt             = & $quote $qGs $eGs
             Offset_K              = $acc.Offset
             Heizgrenze_C          = $acc.HG
             Hinweis               = ($hinweis -join ', ')
@@ -419,7 +458,9 @@ function Invoke-MyUplinkAuswertung {
         @{ n = 'Starts/Lh'; e = { $_.Starts_je_Laufstunde } }, @{ n = 'VL °C'; e = { $_.Vorlauf_C } },
         @{ n = 'RL °C'; e = { $_.Ruecklauf_C } }, @{ n = 'Spreiz K'; e = { $_.Spreizung_K } },
         @{ n = 'WP-MK K'; e = { $_.Abstand_WP_Mischer_K } }, @{ n = 'Abtau'; e = { $_.Abtauungen } },
-        @{ n = 'WW'; e = { $_.WW_Ladungen } }, @{ n = 'kWh th'; e = { $_.Waerme_kWh } }, Hinweis -AutoSize |
+        @{ n = 'WW'; e = { $_.WW_Ladungen } }, @{ n = 'Strom kWh'; e = { $_.Strom_gesamt_kWh } },
+        @{ n = 'Wärme kWh'; e = { if ($null -ne $_.Waerme_gesamt_kWh) { $_.Waerme_gesamt_kWh } else { $_.Waerme_kWh } } },
+        @{ n = 'AZ Hz'; e = { $_.AZ_Heizen } }, @{ n = 'AZ ges'; e = { $_.AZ_gesamt } }, Hinweis -AutoSize |
         Out-String -Width 220 | Write-Host
 
     if ($aenderungen.Count) {
@@ -442,6 +483,7 @@ function Invoke-MyUplinkAuswertung {
             Mischer_Soll_C       = Get-MuMittel $x.MS
             Mischer_Vorlauf_C    = Get-MuMittel $x.MK
             Abstand_WP_Mischer_K = Get-MuMittel $x.Abst
+            COP                  = $(if ($x.Pel -gt 0) { [math]::Round($x.Pth / $x.Pel, 2) } else { $null })
         })
     }
     if ($offsetZeilen.Count -gt 1) {
@@ -449,7 +491,7 @@ function Invoke-MyUplinkAuswertung {
         $offsetZeilen | Format-Table @{ n = 'Offset K'; e = { $_.Offset_K } }, @{ n = 'ab'; e = { $_.Erste_Heizminute.ToString('dd.MM. HH:mm') } },
             @{ n = 'Heiz h'; e = { $_.Heizstunden } }, @{ n = 'AT °C'; e = { $_.Aussen_C } }, @{ n = 'VL °C'; e = { $_.Vorlauf_C } },
             @{ n = 'RL °C'; e = { $_.Ruecklauf_C } }, @{ n = 'MK Soll'; e = { $_.Mischer_Soll_C } }, @{ n = 'MK Ist'; e = { $_.Mischer_Vorlauf_C } },
-            @{ n = 'WP-MK K'; e = { $_.Abstand_WP_Mischer_K } } -AutoSize | Out-String -Width 200 | Write-Host
+            @{ n = 'WP-MK K'; e = { $_.Abstand_WP_Mischer_K } }, COP -AutoSize | Out-String -Width 200 | Write-Host
         Write-Host '  Außentemperatur beachten: Bei unterschiedlichem Wetter sind die Werte nur bedingt vergleichbar.'
         Write-Host ''
     }
@@ -467,12 +509,18 @@ function Invoke-MyUplinkAuswertung {
     }
     if ($null -ne $g.Spreizung_K -and $g.Spreizung_K -gt 10) { Write-Host "  ! Spreizung $($g.Spreizung_K) K: groß (typisch 5 bis 8 K), Volumenstrom prüfen lassen." -ForegroundColor Yellow }
     if ($null -ne $g.Abstand_WP_Mischer_K -and $g.Abstand_WP_Mischer_K -gt 5) { Write-Host "  ! WP-Vorlauf liegt $($g.Abstand_WP_Mischer_K) K über dem Mischerkreis: WP erzeugt höher als nötig, Heizkurve prüfen lassen." -ForegroundColor Yellow }
+    if ($null -ne $g.AZ_Heizen) {
+        $txt = "Arbeitszahl Heizen $($g.AZ_Heizen) im Zeitraum (Ø Außentemperatur $($g.Aussen_C) °C)"
+        if ($null -ne $g.AZ_WW -and $g.AZ_WW -gt $g.AZ_Heizen) { Write-Host "  ! ${txt}: niedriger als Warmwasser ($($g.AZ_WW)), Heiz-Vorlauf vermutlich zu hoch." -ForegroundColor Yellow }
+        else { Write-Host "  i ${txt}." }
+    }
     if ($null -ne $g.Mischer_Abw_K -and [math]::Abs($g.Mischer_Abw_K) -gt 2) { Write-Host "  ! Mischerkreis weicht im Mittel $($g.Mischer_Abw_K) K vom Soll ab." -ForegroundColor Yellow }
     if ($null -ne $g.ZUP_ohne_Verdichter_h -and $g.ZUP_ohne_Verdichter_h -ge 0.5) { Write-Host "  i ZUP lief $($g.ZUP_ohne_Verdichter_h) h ohne Verdichter (Heizkreis wird aus Puffer bzw. Weiche versorgt)." }
     $offen = @($zyklen | Where-Object { $_.Status -eq 'Aus-Signal fehlt' }).Count
     if ($null -ne $g.Starts -and $g.Starts -gt $g.Starts_erkannt) { Write-Host "  i $($g.Starts - $g.Starts_erkannt) Starts nur im Zähler sichtbar (Läufe kürzer als das Abrufintervall oder Lücken)." }
     if ($offen) { Write-Host "  i $offen Läufe ohne Aus-Signal (Abrufintervall zu grob oder Lücke)." }
-    Write-Host '  Wärmemenge (kWh th) ist aus „Heating capacity“ geschätzt, Plausibilität beachten.'
+    if ($null -eq $g.Waerme_gesamt_kWh) { Write-Host '  Wärmemenge ist aus „Heating capacity“ geschätzt. Genauer: Luxtronik per Modbus mitloggen (Menüpunkt 7).' }
+    else { Write-Host '  Strom, Wärme und Arbeitszahlen stammen aus den Zählern der Luxtronik (Modbus).' }
 
     if (-not $KeineDateien) {
         if (-not $OutDir) { $OutDir = Split-Path -Parent (Resolve-Path $LogFile) }
@@ -521,6 +569,9 @@ Kennzahlen:
                       zum Vergleich vor und nach einer Änderung
   Abtau, WW           Anzahl Abtauungen und Warmwasserladungen (Betriebszustand 17)
   kWh th              Wärmemenge geschätzt aus "Heating capacity" (21)
+  Strom/Wärme/AZ      aus den Luxtronik-Zählern (MB10310 bis MB10324), falls per Modbus geloggt;
+                      AZ = Wärme / Strom im Zeitraum, getrennt für Heizen, Warmwasser und gesamt
+  COP (Lauf, Offset)  Heizleistung / Leistungsaufnahme der Luxtronik (MB10300 / MB10301)
 
 -LueckeMinuten: Liegen zwei Abrufe weiter auseinander (z. B. PC aus), wird die Zeit dazwischen
 nicht ausgewertet. Wer nur sehr wenige IDs loggt, setzt -LueckeMinuten 0.

@@ -2,7 +2,7 @@
 
 🇩🇪 Deutsch · [🇬🇧 English](README.en.md)
 
-PowerShell-Werkzeug, das Messwerte einer Wärmepumpe über die offizielle **myUplink-API** abruft und als CSV-Datei protokolliert. Entwickelt und getestet mit einer **alpha innotec Paros 4-2**, funktioniert grundsätzlich mit jedem Gerät, das in myUplink online ist.
+PowerShell-Werkzeug, das Messwerte einer Wärmepumpe über die offizielle **myUplink-API** und optional direkt aus der **Luxtronik-Steuerung (Modbus TCP)** abruft und als CSV-Datei protokolliert. Entwickelt und getestet mit einer **alpha innotec Paros 4-2**, funktioniert grundsätzlich mit jedem Gerät, das in myUplink online ist.
 
 Wozu? Die myUplink-App zeigt aktuelle Werte, aber kaum Verläufe. Mit dem Log lassen sich Taktverhalten (Verdichterstarts, Laufzeiten, Pausen), Vor- und Rücklauf, Spreizung, Abtauungen und Warmwasserzyklen über Tage und Wochen auswerten, z. B. in Excel.
 
@@ -19,7 +19,8 @@ Wozu? Die myUplink-App zeigt aktuelle Werte, aber kaum Verläufe. Mit dem Log la
 | `Start-MyUplink.bat` | Startet das Menü per Doppelklick |
 | `MyUplink-Menue.ps1` | Textmenü (Zugangsdaten, Test, Logger, Hilfe) |
 | `MyUplink-Logger.ps1` | Die eigentlichen Funktionen |
-| `MyUplink-Auswertung.ps1` | Auswertung der Logdatei (Takte, Tageswerte) |
+| `MyUplink-Auswertung.ps1` | Auswertung der Logdatei (Takte, Tageswerte, Arbeitszahlen) |
+| `Luxtronik-Modbus.ps1` | Optional: Werte direkt aus der Luxtronik über Modbus TCP (Strom, Wärme, COP) |
 | `docs/parameter.md` | Parameterreferenz einer Paros 4-2 |
 
 Alle Dateien gehören in denselben Ordner.
@@ -43,6 +44,7 @@ Alle Dateien gehören in denselben Ordner.
 6. **Menüpunkt 3:** Logger starten. Intervall (Standard 5 min) und optional eigene Parameter-IDs angeben. Das Fenster muss offen bleiben, Beenden mit Strg+C.
 7. **Menüpunkt 5:** zeigt die Logdatei `%USERPROFILE%\myuplink-log.csv` im Explorer.
 8. **Menüpunkt 6:** wertet die Logdatei aus, optional für einen Zeitraum (siehe [Auswertung](#auswertung)).
+9. **Menüpunkt 7:** IP der Luxtronik festlegen und Werte direkt anzeigen (siehe [Luxtronik direkt](#luxtronik-direkt-modbus-tcp)).
 
 > Die Standardauswahl der Parameter passt zur Paros 4-2 des Autors. Bei einer anderen Anlage zuerst Menüpunkt 2 ausführen und die gewünschten IDs bei Menüpunkt 3 eingeben.
 
@@ -106,6 +108,31 @@ Die Datei ist ein **Ereignisprotokoll**: Ein Wert wird nur geschrieben, wenn sic
 
 Bedeutung und weitere verfügbare IDs: [docs/parameter.md](docs/parameter.md). Parameter-IDs können sich je nach Gerät und Firmware unterscheiden.
 
+## Luxtronik direkt (Modbus TCP)
+
+Viele alpha-innotec-Wärmepumpen (z. B. Paros) haben eine **Luxtronik**-Steuerung. Ab Firmware 3.90.1 bietet sie eine Smart-Home-Schnittstelle über Modbus TCP. Sie liefert Werte, die es in myUplink nicht gibt:
+
+- elektrische Leistungsaufnahme und Heizleistung aktuell, daraus der **momentane COP**
+- **Stromzähler** gesamt, Heizen, Warmwasser (ab 3.90.1) und **Wärmezähler** gesamt, Heizen, Warmwasser (ab 3.92.0), daraus die **Arbeitszahlen**
+- Pufferkonfiguration, Mindestlauf- und Mindeststillstandszeit
+
+**Einrichtung**
+
+1. Im Regler unter **Smart Home** den Punkt **„ModBus TCP“ auf „Ein“** stellen. Der Status „Standby“ ist normal, solange nichts verbunden ist.
+2. Die **IP-Adresse der Steuerung** ermitteln, z. B. im Router über die MAC-Adresse aus myUplink (Parameter 40011). Achtung: Neben der Steuerung kann ein weiteres Netzwerkmodul eine eigene IP haben.
+3. **Menüpunkt 7**: IP eintragen. Die Werte erscheinen sofort, die IP wird gespeichert (`%USERPROFILE%\.myuplink\luxtronik-ip.txt`).
+4. Logger neu starten (Menüpunkt 3 bzw. Aufgabenplanung). Die Luxtronik-Werte landen mit IDs wie `MB10301` in derselben CSV, jeweils nur bei Änderung.
+
+In PowerShell direkt:
+
+```powershell
+. C:\Tools\myuplink-logger\MyUplink-Logger.ps1      # lädt Luxtronik-Modbus.ps1 mit
+Set-LuxtronikIP 192.168.178.33
+Show-LuxtronikModbus
+```
+
+Die Abfrage **liest nur** (Modbus-Funktion 04, Input-Register) und schreibt nichts in die Steuerung. Strom- und Wärmezähler berechnet die Steuerung selbst; sie sind kein geeichter Zähler, eignen sich aber gut für Vergleiche. Registerliste: [docs/parameter.md](docs/parameter.md#luxtronik-modbus-tcp).
+
 ## Auswertung
 
 `MyUplink-Auswertung.ps1` liest die Logdatei und erstellt eine Tagesübersicht. Es greift nicht auf myUplink zu und kann jederzeit laufen, auch während der Logger aktiv ist.
@@ -130,7 +157,7 @@ So wird gerechnet:
 - **Laufzeit und Zyklen** aus den Schaltzeitpunkten von VD1 (70), **Starts** aus dem Zähler 5674. Weichen beide ab, gab es Läufe, die kürzer als das Abrufintervall waren.
 - **Temperaturmittel** nur im Heizbetrieb (Betriebszustand 0), ohne die ersten 10 Minuten jedes Laufs (`-EinschwingMinuten`) und ohne Abtau- und Warmwasserphasen.
 - **Lücken:** Liegen zwei Abrufe mehr als 30 Minuten auseinander (z. B. PC aus), wird die Zeit dazwischen nicht ausgewertet (`-LueckeMinuten`, 0 = aus). Betroffene Tage und Läufe sind markiert.
-- **Wärmemenge** aus „Heating capacity“ (21) hochgerechnet, daher nur ein Schätzwert.
+- **Wärmemenge** aus „Heating capacity“ (21) hochgerechnet, daher nur ein Schätzwert. Wird die Luxtronik per Modbus mitgeloggt, kommen Strom, Wärme und **Arbeitszahlen pro Tag** (Heizen, Warmwasser, gesamt) aus deren Zählern, dazu der **COP je Lauf** und **je Einstellung „Temperatur + −“**.
 
 Ein Monat Log wird in etwa 20 Sekunden ausgewertet.
 
@@ -140,7 +167,7 @@ Ein Monat Log wird in etwa 20 Sekunden ausgewertet.
 - **Spreizung:** Vorlauf (0) minus Rücklauf (1), nur während der Verdichter läuft. In den Pausen steht die Pumpe oft, die Werte sind dann nicht aussagekräftig.
 - **Mischerkreis:** Abstand zwischen WP-Vorlauf (0) und Mischerkreis-Vorlauf (23). Ein großer Abstand heißt, die WP erzeugt höher als die Heizkörper brauchen.
 - **Versuche markieren:** „temperature + −“ (5001) und Heizgrenze (5700) werden mitgeloggt. So ist im Log sichtbar, ab wann eine Einstellung geändert wurde.
-- **COP:** Die myUplink-API liefert bei der Paros keine elektrische Leistung. Für einen COP braucht es einen separaten Stromzähler.
+- **COP:** Die myUplink-API liefert keine elektrische Leistung. Über die Luxtronik (Modbus) gibt es Leistung und Zähler direkt, siehe oben.
 
 ## Datenschutz
 
