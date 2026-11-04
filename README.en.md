@@ -21,6 +21,7 @@ Why? The myUplink app shows current values but hardly any history. With the log 
 | `Start-MyUplink.bat` | Starts the menu by double-click |
 | `MyUplink-Menue.ps1` | Text menu (credentials, test, logger, help) |
 | `MyUplink-Logger.ps1` | The actual functions |
+| `MyUplink-Auswertung.ps1` | Log analysis (cycles, daily figures) |
 | `docs/parameter.md` | Parameter reference of a Paros 4-2 (German) |
 
 Keep all files in the same folder.
@@ -43,6 +44,7 @@ Keep all files in the same folder.
 5. **Option 2** (Verbindung testen): lists all data points of your system. You can save the list as CSV on the desktop.
 6. **Option 3** (Logger starten): enter the interval (default 5 min) and optionally your own parameter IDs. Keep the window open, stop with Ctrl+C.
 7. **Option 5** (Logdatei zeigen): shows the log file `%USERPROFILE%\myuplink-log.csv` in Explorer.
+8. **Option 6** (Logdatei auswerten): analyses the log, optionally for a date range (see [Analysis](#analysis)).
 
 > The default parameter selection matches the author's Paros 4-2. For other devices run option 2 first and enter the IDs you want in option 3.
 
@@ -103,6 +105,33 @@ The file is an **event log**: a value is written only when its myUplink timestam
 `0, 1, 2, 3, 5, 6, 17, 21, 22, 23, 31, 32, 33, 39, 45, 46, 57, 66, 67, 70, 5001, 5668, 5674, 5700, 5728, 5729`
 
 Meaning and other available IDs: [docs/parameter.md](docs/parameter.md). IDs may differ between devices and firmware versions.
+
+## Analysis
+
+`MyUplink-Auswertung.ps1` reads the log file and builds a daily summary. It does not contact myUplink and can run at any time, even while the logger is active.
+
+```powershell
+. C:\Tools\myuplink-logger\MyUplink-Auswertung.ps1
+Invoke-MyUplinkAuswertung                                   # whole log
+Invoke-MyUplinkAuswertung -Von 2026-11-05 -Bis 2026-11-11   # date range (Von = from, Bis = to)
+Invoke-MyUplinkAuswertung -Hilfe
+```
+
+The console shows one row per day plus a total row, the setting changes (offset, heating limit) and a rule-of-thumb assessment. Two files are written next to the log file:
+
+| File | Content |
+| --- | --- |
+| `myuplink-auswertung-tage.csv` | Per day: coverage, outdoor temperature, starts, run time, avg/min/max run, avg pause, starts per run hour, flow, return, spread, mixing circuit, heat pump vs. mixing circuit gap, defrosts, hot water, heat, offset, heating limit |
+| `myuplink-auswertung-zyklen.csv` | Per compressor run: start, end, duration, preceding pause, averages, defrosts, hot water minutes, status |
+
+How it works:
+
+- **Run time and cycles** from the switching times of VD1 (70), **starts** from counter 5674. If they differ, some runs were shorter than the polling interval.
+- **Temperature averages** in heating mode only (operation mode 0), skipping the first 10 minutes of each run (`-EinschwingMinuten`) as well as defrost and hot water phases.
+- **Gaps:** if two polls are more than 30 minutes apart (e.g. PC switched off), that time is excluded (`-LueckeMinuten`, 0 = off). Affected days and runs are marked.
+- **Heat** is integrated from "Heating capacity" (21), so it is an estimate only.
+
+One month of log data takes about 20 seconds.
 
 ## Analysis tips
 

@@ -16,6 +16,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'MyUplink-Logger.ps1') -Dezimaltrennzeichen $Dezimaltrennzeichen
+. (Join-Path $PSScriptRoot 'MyUplink-Auswertung.ps1')
 
 $logDatei = Join-Path $env:USERPROFILE 'myuplink-log.csv'
 
@@ -30,6 +31,7 @@ function Show-Menue {
     Write-Host '  3  Logger starten (schreibt in eine CSV-Datei)'
     Write-Host '  4  Hilfe'
     Write-Host '  5  Logdatei im Explorer zeigen'
+    Write-Host '  6  Logdatei auswerten (Takte, Tageswerte)'
     Write-Host '  0  Beenden'
     Write-Host ''
 }
@@ -98,6 +100,25 @@ while ($true) {
                     Write-Host "Noch keine Logdatei vorhanden: $logDatei"
                     Warte
                 }
+            }
+            '6' {
+                if (-not (Test-Path $logDatei)) {
+                    Write-Host ''
+                    Write-Host "Noch keine Logdatei vorhanden: $logDatei"
+                    Warte
+                    break
+                }
+                Write-Host ''
+                Write-Host 'Zeitraum eingrenzen (leer lassen = alles):'
+                $von = Read-Host 'Von (TT.MM.JJJJ)'
+                $bis = Read-Host 'Bis (TT.MM.JJJJ)'
+                $param = @{ LogFile = $logDatei; Dezimaltrennzeichen = $Dezimaltrennzeichen }
+                $de = [Globalization.CultureInfo]::GetCultureInfo('de-DE')
+                if ($von) { $param.Von = [datetime]::ParseExact($von, 'dd.MM.yyyy', $de) }
+                if ($bis) { $param.Bis = [datetime]::ParseExact($bis, 'dd.MM.yyyy', $de) }
+                Write-Host ''
+                Invoke-MyUplinkAuswertung @param
+                Warte
             }
             '0' { return }
             default { }

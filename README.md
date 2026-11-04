@@ -19,6 +19,7 @@ Wozu? Die myUplink-App zeigt aktuelle Werte, aber kaum Verläufe. Mit dem Log la
 | `Start-MyUplink.bat` | Startet das Menü per Doppelklick |
 | `MyUplink-Menue.ps1` | Textmenü (Zugangsdaten, Test, Logger, Hilfe) |
 | `MyUplink-Logger.ps1` | Die eigentlichen Funktionen |
+| `MyUplink-Auswertung.ps1` | Auswertung der Logdatei (Takte, Tageswerte) |
 | `docs/parameter.md` | Parameterreferenz einer Paros 4-2 |
 
 Alle Dateien gehören in denselben Ordner.
@@ -41,6 +42,7 @@ Alle Dateien gehören in denselben Ordner.
 5. **Menüpunkt 2:** Verbindung testen. Es erscheinen alle Messpunkte der Anlage. Die Liste lässt sich als CSV auf dem Desktop speichern.
 6. **Menüpunkt 3:** Logger starten. Intervall (Standard 5 min) und optional eigene Parameter-IDs angeben. Das Fenster muss offen bleiben, Beenden mit Strg+C.
 7. **Menüpunkt 5:** zeigt die Logdatei `%USERPROFILE%\myuplink-log.csv` im Explorer.
+8. **Menüpunkt 6:** wertet die Logdatei aus, optional für einen Zeitraum (siehe [Auswertung](#auswertung)).
 
 > Die Standardauswahl der Parameter passt zur Paros 4-2 des Autors. Bei einer anderen Anlage zuerst Menüpunkt 2 ausführen und die gewünschten IDs bei Menüpunkt 3 eingeben.
 
@@ -103,6 +105,33 @@ Die Datei ist ein **Ereignisprotokoll**: Ein Wert wird nur geschrieben, wenn sic
 `0, 1, 2, 3, 5, 6, 17, 21, 22, 23, 31, 32, 33, 39, 45, 46, 57, 66, 67, 70, 5001, 5668, 5674, 5700, 5728, 5729`
 
 Bedeutung und weitere verfügbare IDs: [docs/parameter.md](docs/parameter.md). Parameter-IDs können sich je nach Gerät und Firmware unterscheiden.
+
+## Auswertung
+
+`MyUplink-Auswertung.ps1` liest die Logdatei und erstellt eine Tagesübersicht. Es greift nicht auf myUplink zu und kann jederzeit laufen, auch während der Logger aktiv ist.
+
+```powershell
+. C:\Tools\myuplink-logger\MyUplink-Auswertung.ps1
+Invoke-MyUplinkAuswertung                                   # gesamte Logdatei
+Invoke-MyUplinkAuswertung -Von 2026-11-05 -Bis 2026-11-11   # Zeitraum
+Invoke-MyUplinkAuswertung -Hilfe
+```
+
+Im Fenster erscheint eine Tabelle pro Tag plus Gesamtzeile, darunter die Einstellungsänderungen (Offset, Heizgrenze) und eine Einschätzung nach Faustregeln. Zusätzlich entstehen zwei Dateien im Ordner der Logdatei:
+
+| Datei | Inhalt |
+| --- | --- |
+| `myuplink-auswertung-tage.csv` | Pro Tag: Abdeckung, Außentemperatur, Starts, Laufzeit, Ø/min/max Lauf, Ø Pause, Starts je Laufstunde, Vorlauf, Rücklauf, Spreizung, Mischerkreis, Abstand WP-Mischer, Abtauungen, Warmwasser, Wärmemenge, Offset, Heizgrenze |
+| `myuplink-auswertung-zyklen.csv` | Pro Verdichterlauf: Start, Ende, Dauer, Pause davor, Mittelwerte, Abtauungen, Warmwasser-Minuten, Status |
+
+So wird gerechnet:
+
+- **Laufzeit und Zyklen** aus den Schaltzeitpunkten von VD1 (70), **Starts** aus dem Zähler 5674. Weichen beide ab, gab es Läufe, die kürzer als das Abrufintervall waren.
+- **Temperaturmittel** nur im Heizbetrieb (Betriebszustand 0), ohne die ersten 10 Minuten jedes Laufs (`-EinschwingMinuten`) und ohne Abtau- und Warmwasserphasen.
+- **Lücken:** Liegen zwei Abrufe mehr als 30 Minuten auseinander (z. B. PC aus), wird die Zeit dazwischen nicht ausgewertet (`-LueckeMinuten`, 0 = aus). Betroffene Tage und Läufe sind markiert.
+- **Wärmemenge** aus „Heating capacity“ (21) hochgerechnet, daher nur ein Schätzwert.
+
+Ein Monat Log wird in etwa 20 Sekunden ausgewertet.
 
 ## Auswertungstipps
 

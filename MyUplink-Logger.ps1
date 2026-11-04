@@ -56,6 +56,9 @@ Funktionen:
   Start-MyUplinkLogger      Dauerschleife, ruft Write-MyUplinkLog im Intervall auf
   Show-MyUplinkHilfe        Diese Hilfe
 
+Auswertung (Datei MyUplink-Auswertung.ps1, im Menü Punkt 6):
+  Invoke-MyUplinkAuswertung Takte, Laufzeiten, Tageswerte und Hinweise aus der CSV (-Hilfe für Details)
+
 Hilfe zu einer Funktion:  <Funktion> -Hilfe     oder     Show-MyUplinkHilfe -Funktion <Name>
 Vollständige PowerShell-Hilfe: Get-Help <Funktion> -Examples
 
