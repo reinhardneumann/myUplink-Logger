@@ -159,13 +159,22 @@ How it works:
 - **Gaps:** if two polls are more than 30 minutes apart (e.g. PC switched off), that time is excluded (`-LueckeMinuten`, 0 = off). Affected days and runs are marked.
 - **Heat** is integrated from "Heating capacity" (21), so it is an estimate only. If the Luxtronik is logged via Modbus, electricity, heat and **daily performance factors** (heating, hot water, total) come from its counters, plus the **COP per run** and **per "temperature + -" setting**.
 
+Additional checks (since 2.4.0):
+
+- **Charging circuit vs. heating curve:** with a buffer sensor "return external" (3), the analysis shows two gaps: heat pump flow to buffer (`WP-Puf`, caused by the charging circuit's spread and flow rate) and buffer to mixing circuit target (`Puf-MK`, alignment of the heating curves). Without a buffer sensor it falls back to the gap to the mixing circuit.
+- **Switching points:** buffer sensor minus return target (2) at start and stop of each run, shown as median over all runs. This reveals the switching hysteresis and whether a change takes effect.
+- **Flow plausibility:** displayed flow rate (31) against the flow calculated from heat output and spread. A large mismatch means either the display or the actual flow is off.
+- **COP by flow temperature** in 2 K classes (requires Luxtronik power values).
+- **Mixing circuit stability:** share of minutes more than 2 K off target, day (6 am to 10 pm) and night.
+- **Pumps:** run time of HUP and ZUP during compressor pauses, without interpretation, since their role depends on the hydraulics.
+
 One month of log data takes about 20 seconds.
 
 ## Analysis tips
 
 - **Cycling:** compressor starts (5674) and run times from the On/Off changes of VD1 (70). Rule of thumb: runs of at least 20 to 30 minutes and no more than about 3 starts per hour are healthy.
 - **Spread:** flow (0) minus return (1), only while the compressor runs. During pauses the pump often stops, so those values are not meaningful.
-- **Mixing circuit:** the gap between heat pump flow (0) and mixing circuit flow (23). A large gap means the heat pump produces higher temperatures than the radiators need.
+- **Mixing circuit:** the gap between heat pump flow (0) and mixing circuit (23). With a buffer, split it: a large heat-pump-to-buffer gap points to the charging circuit, a large buffer-to-mixing-circuit gap to the heating curve.
 - **Mark experiments:** "temperature + -" (5001) and heating limit (5700) are logged, so setting changes are visible in the log.
 - **COP:** the myUplink API provides no electrical power. The Luxtronik (Modbus) provides power and counters directly, see above.
 

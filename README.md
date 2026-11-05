@@ -159,13 +159,22 @@ So wird gerechnet:
 - **Lücken:** Liegen zwei Abrufe mehr als 30 Minuten auseinander (z. B. PC aus), wird die Zeit dazwischen nicht ausgewertet (`-LueckeMinuten`, 0 = aus). Betroffene Tage und Läufe sind markiert.
 - **Wärmemenge** aus „Heating capacity“ (21) hochgerechnet, daher nur ein Schätzwert. Wird die Luxtronik per Modbus mitgeloggt, kommen Strom, Wärme und **Arbeitszahlen pro Tag** (Heizen, Warmwasser, gesamt) aus deren Zählern, dazu der **COP je Lauf** und **je Einstellung „Temperatur + −“**.
 
+Weitere Prüfungen (seit 2.4.0):
+
+- **Ladekreis und Heizkurve getrennt:** Bei einem Puffer mit Fühler „Rücklauf extern“ (3) zeigt die Auswertung zwei Abstände: WP-Vorlauf zum Puffer (`WP-Puf`, entsteht im Ladekreis durch Spreizung und Volumenstrom) und Puffer zum Mischerkreis-Soll (`Puf-MK`, Abstimmung der Heizkurven). Ohne Pufferfühler bleibt es beim Abstand zum Mischerkreis.
+- **Schaltpunkte:** Pufferfühler minus Rücklauf-Soll (2) bei Start und Stopp jedes Laufs, im Fenster als Median über alle Läufe. Daraus lässt sich die Schaltdifferenz ablesen und prüfen, ob eine Änderung wirkt.
+- **Durchfluss-Plausibilität:** angezeigter Durchfluss (31) gegen den rechnerischen aus Heizleistung und Spreizung. Weicht beides stark ab, stimmt entweder die Anzeige oder der tatsächliche Volumenstrom nicht.
+- **COP nach Vorlauftemperatur** in 2-K-Klassen (nur mit Luxtronik-Leistungswerten).
+- **Stabilität des Mischerkreises:** Anteil der Minuten mit mehr als 2 K Abweichung vom Soll, getrennt nach Tag (6 bis 22 Uhr) und Nacht.
+- **Pumpen:** Laufzeit von HUP und ZUP in den Verdichterpausen, ohne Deutung, weil die Zuordnung von der Hydraulik abhängt.
+
 Ein Monat Log wird in etwa 20 Sekunden ausgewertet.
 
 ## Auswertungstipps
 
 - **Takten:** Verdichterstarts (5674) und Laufzeit aus den Wechseln von VD1 (70) „On“/„Off“. Faustregel: Läufe ab 20 bis 30 min und höchstens etwa 3 Starts pro Stunde gelten als gesund.
 - **Spreizung:** Vorlauf (0) minus Rücklauf (1), nur während der Verdichter läuft. In den Pausen steht die Pumpe oft, die Werte sind dann nicht aussagekräftig.
-- **Mischerkreis:** Abstand zwischen WP-Vorlauf (0) und Mischerkreis-Vorlauf (23). Ein großer Abstand heißt, die WP erzeugt höher als die Heizkörper brauchen.
+- **Mischerkreis:** Abstand zwischen WP-Vorlauf (0) und Mischerkreis (23). Mit Puffer lohnt die Aufteilung: Ein großer Abstand WP–Puffer liegt am Ladekreis, ein großer Abstand Puffer–Mischerkreis an der Heizkurve.
 - **Versuche markieren:** „temperature + −“ (5001) und Heizgrenze (5700) werden mitgeloggt. So ist im Log sichtbar, ab wann eine Einstellung geändert wurde.
 - **COP:** Die myUplink-API liefert keine elektrische Leistung. Über die Luxtronik (Modbus) gibt es Leistung und Zähler direkt, siehe oben.
 

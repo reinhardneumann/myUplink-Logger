@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.4.0 – 2026-11-05
+
+- Auswertung trennt bei Puffer mit Fühler „Rücklauf extern“ den Abstand WP-Vorlauf → Puffer (Ladekreis) und Puffer → Mischerkreis-Soll (Heizkurve); der bisherige Hinweis „WP erzeugt höher als nötig, Heizkurve prüfen“ war bei Trennpuffern irreführend
+- Neu: Schaltpunkte am Pufferfühler je Lauf (Start/Stopp relativ zum Rücklauf-Soll) und Median im Fenster
+- Neu: Plausibilitätsprüfung der Durchflussanzeige gegen Heizleistung und Spreizung
+- Neu: COP nach Vorlauftemperatur (2-K-Klassen, mit Luxtronik-Leistungswerten)
+- Neu: Stabilität des Mischerkreises (Minuten > 2 K neben dem Soll, Tag/Nacht)
+- Pumpen-Hinweis ohne Deutung (HUP/ZUP-Rolle hängt von der Hydraulik ab), HUP-Laufzeit ohne Verdichter ergänzt
+
 ## 2.3.1 – 2026-11-04
 
 - Auswertung: Tage, für die die Luxtronik-Zähler nicht ab Tagesbeginn geloggt sind, zeigen keine Strom-/Wärmewerte mehr statt 0; Gesamtzeile nennt den Beginn der Zählerdaten

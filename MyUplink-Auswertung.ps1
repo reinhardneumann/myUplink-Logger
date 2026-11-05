@@ -28,10 +28,12 @@ $script:MuId = @{
     MischerIst    = '23'
     MischerSoll   = '22'
     RuecklaufExt  = '3'
+    RuecklaufSoll = '2'
     HUP           = '32'
     ZUP           = '33'
     # Luxtronik direkt (Modbus TCP), ID = MB + Registeradresse
     LuxPth        = 'MB10300'
+    LuxVL         = 'MB10105'
     LuxPel        = 'MB10301'
     LuxStromGes   = 'MB10310'
     LuxStromHz    = 'MB10312'
@@ -82,6 +84,13 @@ function Get-MuRaster {
 function New-MuMittel { @{ S = 0.0; N = 0 } }
 function Add-MuMittel($m, [double]$x) { if (-not [double]::IsNaN($x)) { $m.S += $x; $m.N++ } }
 function Get-MuMittel($m, [int]$Stellen = 1) { if ($m.N -gt 0) { [math]::Round($m.S / $m.N, $Stellen) + 0.0 } else { $null } }   # + 0.0 vermeidet -0
+
+function Get-MuMedian($werte, [int]$Stellen = 1) {
+    $a = @($werte | Where-Object { $null -ne $_ } | ForEach-Object { [double]$_ } | Sort-Object)
+    if ($a.Count -eq 0) { return $null }
+    $m = if ($a.Count % 2) { $a[[int][math]::Floor($a.Count / 2)] } else { ($a[$a.Count / 2 - 1] + $a[$a.Count / 2]) / 2 }
+    [math]::Round($m, $Stellen) + 0.0
+}
 
 function Format-MuCsvZeile {
     # Zahlen mit dem gewünschten Dezimaltrennzeichen in Text umwandeln (wie im Logger)
@@ -227,6 +236,7 @@ function Invoke-MyUplinkAuswertung {
         $mVL = New-MuMittel; $mRL = New-MuMittel; $mAT = New-MuMittel; $mMK = New-MuMittel; $mP = New-MuMittel; $mQ = New-MuMittel
         $mMS = New-MuMittel; $mMA = New-MuMittel; $mRX = New-MuMittel
         $sumPth = 0.0; $sumPel = 0.0; $mPel = New-MuMittel
+        $mWP = New-MuMittel; $mFD = New-MuMittel
         $ww = 0; $luecke = $false
         for ($k = [math]::Max($i0, 0); $k -lt [math]::Min($i1, $n); $k++) {
             $alter[$k] = $k - $i0
@@ -240,6 +250,8 @@ function Invoke-MyUplinkAuswertung {
                 Add-MuMittel $mMA ($r.MischerIst[$k] - $r.MischerSoll[$k])
                 Add-MuMittel $mPel $r.LuxPel[$k]
                 if (-not [double]::IsNaN($r.LuxPth[$k]) -and -not [double]::IsNaN($r.LuxPel[$k])) { $sumPth += $r.LuxPth[$k]; $sumPel += $r.LuxPel[$k] }
+                Add-MuMittel $mWP ($r.Vorlauf[$k] - $r.RuecklaufExt[$k])
+                Add-MuMittel $mFD ($r.Durchfluss[$k] * 1.163 * ($r.Vorlauf[$k] - $r.Ruecklauf[$k]) / 1000.0)
             }
             Add-MuMittel $mAT $r.Aussen[$k]
         }
@@ -261,6 +273,13 @@ function Invoke-MyUplinkAuswertung {
             for ($k = $pIdx0; $k -le $pIdx1; $k++) { if (-not $abgedeckt[$k]) { $ok = $false; break } }
             if ($ok) { $pause = [int][math]::Round(($l.A - $vorEnde) / $tpm, 0) }
         }
+        # Schaltpunkte am Pufferfühler (Rücklauf extern) relativ zum Rücklauf-Soll
+        $wert = { param($arr, $k) if ($k -ge 0 -and $k -lt $n -and $abgedeckt[$k] -and -not [double]::IsNaN($arr[$k])) { [math]::Round($arr[$k], 1) + 0.0 } else { $null } }
+        $pufS = & $wert $r.RuecklaufExt ($i0 - 1); $solS = & $wert $r.RuecklaufSoll ($i0 - 1)
+        $pufE = $null; $solE = $null; $vlE = $null
+        if ($status -eq 'vollständig' -and $i1 - 1 -ge $i0) {
+            $pufE = & $wert $r.RuecklaufExt ($i1 - 1); $solE = & $wert $r.RuecklaufSoll ($i1 - 1); $vlE = & $wert $r.Vorlauf ($i1 - 1)
+        }
         $vlm = Get-MuMittel $mVL; $rlm = Get-MuMittel $mRL
         $zyklen.Add([pscustomobject][ordered]@{
             Start              = [datetime]$l.A
@@ -275,10 +294,18 @@ function Invoke-MyUplinkAuswertung {
             Mischer_Soll_C     = Get-MuMittel $mMS
             Mischer_Abw_K      = Get-MuMittel $mMA
             Ruecklauf_ext_C    = Get-MuMittel $mRX
+            Abstand_WP_Puffer_K = Get-MuMittel $mWP
+            Puffer_Start_C     = $pufS
+            RL_Soll_Start_C    = $solS
+            Schalt_Start_K     = $(if ($null -ne $pufS -and $null -ne $solS) { [math]::Round($pufS - $solS, 1) + 0.0 } else { $null })
+            Puffer_Stopp_C     = $pufE
+            Schalt_Stopp_K     = $(if ($null -ne $pufE -and $null -ne $solE) { [math]::Round($pufE - $solE, 1) + 0.0 } else { $null })
+            Vorlauf_Stopp_C    = $vlE
             Leistung_kW        = Get-MuMittel $mP 2
             Leistung_el_kW     = Get-MuMittel $mPel 2
             COP                = $(if ($sumPel -gt 0) { [math]::Round($sumPth / $sumPel, 2) } else { $null })
             Durchfluss_lh      = Get-MuMittel $mQ 0
+            Leistung_aus_Durchfluss_kW = Get-MuMittel $mFD 2
             Abtauungen         = $abtau
             WW_min             = $ww
             Status             = $status
@@ -304,8 +331,14 @@ function Invoke-MyUplinkAuswertung {
         @{ Cov = 0; AT = (New-MuMittel); An = 0; VL = (New-MuMittel); RL = (New-MuMittel); MK = (New-MuMittel)
            Abst = (New-MuMittel); kWh = 0.0; Abtau = 0; WW = 0; First = -1; Last = -1; Offset = $null; HG = $null
            MS = (New-MuMittel); MA = (New-MuMittel); RX = (New-MuMittel)
-           HUP = 0; HUPn = 0; ZUP = 0; ZUPn = 0; ZUPaus = 0 }
+           HUP = 0; HUPn = 0; HUPaus = 0; ZUP = 0; ZUPn = 0; ZUPaus = 0
+           WPPuf = (New-MuMittel); PufMK = (New-MuMittel); Pref = (New-MuMittel); Fl = (New-MuMittel); Spr = (New-MuMittel)
+           MKTn = 0; MKTx = 0; MKNn = 0; MKNx = 0 }
     }
+    # COP nach Vorlauf-Klassen (Gesamtzeitraum, nur mit Luxtronik-Leistungswerten)
+    $klassen = @(@{ Bis = 46; Name = 'bis 46 °C' }, @{ Bis = 48; Name = '46-48 °C' }, @{ Bis = 50; Name = '48-50 °C' },
+                 @{ Bis = 52; Name = '50-52 °C' }, @{ Bis = 54; Name = '52-54 °C' }, @{ Bis = 999; Name = 'über 54 °C' })
+    foreach ($kl in $klassen) { $kl.Min = 0; $kl.Pth = 0.0; $kl.Pel = 0.0; $kl.AT = (New-MuMittel) }
     $gesamt = & $neuerTag
     # Vergleich nach Einstellung "Temperatur + -": Heizminuten je Offset-Wert
     $proOffset = [ordered]@{}
@@ -326,6 +359,13 @@ function Invoke-MyUplinkAuswertung {
             Add-MuMittel $g.Abst ($r.Vorlauf[$k] - $r.MischerIst[$k])
             if (-not [double]::IsNaN($r.LuxPth[$k]) -and -not [double]::IsNaN($r.LuxPel[$k])) { $g.Pth += $r.LuxPth[$k]; $g.Pel += $r.LuxPel[$k] }
         }
+        $heizMin = $abgedeckt[$k] -and $r.Verdichter[$k] -ge 0.5 -and $r.Zustand[$k] -eq $script:MuZustandHeizen -and $alter[$k] -ge $EinschwingMinuten
+        # Vorlauf aus derselben Luxtronik-Abfrage wie die Leistungswerte (zeitgleich), sonst myUplink
+        $vlK = if (-not [double]::IsNaN($r.LuxVL[$k])) { $r.LuxVL[$k] } else { $r.Vorlauf[$k] }
+        if ($heizMin -and -not [double]::IsNaN($r.LuxPth[$k]) -and -not [double]::IsNaN($r.LuxPel[$k]) -and -not [double]::IsNaN($vlK)) {
+            foreach ($kl in $klassen) { if ($vlK -lt $kl.Bis) { $kl.Min++; $kl.Pth += $r.LuxPth[$k]; $kl.Pel += $r.LuxPel[$k]; Add-MuMittel $kl.AT $r.Aussen[$k]; break } }
+        }
+        $stunde = ([datetime]($start + $k * $tpm)).Hour
         foreach ($acc in @($tage[$tag], $gesamt)) {
             if ($acc.First -lt 0) { $acc.First = $k }
             $acc.Last = $k
@@ -342,8 +382,20 @@ function Invoke-MyUplinkAuswertung {
                 if (-not [double]::IsNaN($r.MischerIst[$k]) -and -not [double]::IsNaN($r.Vorlauf[$k])) { Add-MuMittel $acc.Abst ($r.Vorlauf[$k] - $r.MischerIst[$k]) }
                 Add-MuMittel $acc.MS $r.MischerSoll[$k]; Add-MuMittel $acc.RX $r.RuecklaufExt[$k]
                 Add-MuMittel $acc.MA ($r.MischerIst[$k] - $r.MischerSoll[$k])
+                Add-MuMittel $acc.WPPuf ($r.Vorlauf[$k] - $r.RuecklaufExt[$k])
+                $pr = if (-not [double]::IsNaN($r.LuxPth[$k])) { $r.LuxPth[$k] } else { $r.Leistung[$k] }
+                $sp = $r.Vorlauf[$k] - $r.Ruecklauf[$k]
+                if (-not [double]::IsNaN($pr) -and $pr -gt 0 -and $sp -gt 3 -and $r.Durchfluss[$k] -gt 0) {
+                    Add-MuMittel $acc.Pref $pr; Add-MuMittel $acc.Spr $sp; Add-MuMittel $acc.Fl $r.Durchfluss[$k]
+                }
             }
-            if (-not [double]::IsNaN($r.HUP[$k])) { $acc.HUPn++; if ($r.HUP[$k] -ge 0.5) { $acc.HUP++ } }
+            Add-MuMittel $acc.PufMK ($r.RuecklaufExt[$k] - $r.MischerSoll[$k])
+            $dev = $r.MischerIst[$k] - $r.MischerSoll[$k]
+            if (-not [double]::IsNaN($dev)) {
+                if ($stunde -ge 6 -and $stunde -lt 22) { $acc.MKTn++; if ([math]::Abs($dev) -gt 2) { $acc.MKTx++ } }
+                else { $acc.MKNn++; if ([math]::Abs($dev) -gt 2) { $acc.MKNx++ } }
+            }
+            if (-not [double]::IsNaN($r.HUP[$k])) { $acc.HUPn++; if ($r.HUP[$k] -ge 0.5) { $acc.HUP++; if (-not $ein) { $acc.HUPaus++ } } }
             if (-not [double]::IsNaN($r.ZUP[$k])) {
                 $acc.ZUPn++
                 if ($r.ZUP[$k] -ge 0.5) { $acc.ZUP++; if (-not $ein) { $acc.ZUPaus++ } }
@@ -408,9 +460,17 @@ function Invoke-MyUplinkAuswertung {
             Spreizung_K           = $(if ($null -ne $vl -and $null -ne $rl) { [math]::Round($vl - $rl, 1) } else { $null })
             Mischer_Vorlauf_C     = Get-MuMittel $acc.MK
             Abstand_WP_Mischer_K  = Get-MuMittel $acc.Abst
+            Abstand_WP_Puffer_K   = Get-MuMittel $acc.WPPuf
+            Abstand_Puffer_Mischer_K = Get-MuMittel $acc.PufMK
             Mischer_Soll_C        = Get-MuMittel $acc.MS
             Mischer_Abw_K         = Get-MuMittel $acc.MA
             Ruecklauf_ext_C       = Get-MuMittel $acc.RX
+            Mischer_ueber2K_Tag_Proz   = $(if ($acc.MKTn -gt 0) { [int][math]::Round(100.0 * $acc.MKTx / $acc.MKTn) } else { $null })
+            Mischer_ueber2K_Nacht_Proz = $(if ($acc.MKNn -gt 0) { [int][math]::Round(100.0 * $acc.MKNx / $acc.MKNn) } else { $null })
+            Schalt_Start_K        = Get-MuMedian @($zyk | ForEach-Object { $_.Schalt_Start_K })
+            Schalt_Stopp_K        = Get-MuMedian @($zyk | ForEach-Object { $_.Schalt_Stopp_K })
+            Durchfluss_angezeigt_lh   = Get-MuMittel $acc.Fl 0
+            Durchfluss_rechnerisch_lh = $(if ($acc.Spr.N -gt 0 -and $acc.Spr.S -gt 0) { [int][math]::Round(1000.0 * $acc.Pref.S / $acc.Pref.N / (1.163 * $acc.Spr.S / $acc.Spr.N)) } else { $null })
             Abtauungen            = $abtauN
             Abtau_min             = $acc.Abtau
             WW_Ladungen           = $wwN
@@ -418,6 +478,7 @@ function Invoke-MyUplinkAuswertung {
             HUP_h                 = $(if ($acc.HUPn -gt 0) { [math]::Round($acc.HUP / 60.0, 1) } else { $null })
             ZUP_h                 = $(if ($acc.ZUPn -gt 0) { [math]::Round($acc.ZUP / 60.0, 1) } else { $null })
             ZUP_ohne_Verdichter_h = $(if ($acc.ZUPn -gt 0) { [math]::Round($acc.ZUPaus / 60.0, 1) } else { $null })
+            HUP_ohne_Verdichter_h = $(if ($acc.HUPn -gt 0) { [math]::Round($acc.HUPaus / 60.0, 1) } else { $null })
             Waerme_kWh            = [math]::Round($acc.kWh, 1)
             Strom_Heizen_kWh      = $eHz
             Waerme_Heizen_kWh     = $qHz
@@ -465,7 +526,8 @@ function Invoke-MyUplinkAuswertung {
         Starts, @{ n = 'Lauf h'; e = { $_.Laufzeit_h } }, @{ n = 'Ø Lauf min'; e = { $_.Lauf_Mittel_min } },
         @{ n = 'Starts/Lh'; e = { $_.Starts_je_Laufstunde } }, @{ n = 'VL °C'; e = { $_.Vorlauf_C } },
         @{ n = 'RL °C'; e = { $_.Ruecklauf_C } }, @{ n = 'Spreiz K'; e = { $_.Spreizung_K } },
-        @{ n = 'WP-MK K'; e = { $_.Abstand_WP_Mischer_K } }, @{ n = 'Abtau'; e = { $_.Abtauungen } },
+        @{ n = 'WP-Puf K'; e = { if ($null -ne $_.Abstand_WP_Puffer_K) { $_.Abstand_WP_Puffer_K } else { $_.Abstand_WP_Mischer_K } } },
+        @{ n = 'Puf-MK K'; e = { $_.Abstand_Puffer_Mischer_K } }, @{ n = 'Abtau'; e = { $_.Abtauungen } },
         @{ n = 'WW'; e = { $_.WW_Ladungen } }, @{ n = 'Strom kWh'; e = { $_.Strom_gesamt_kWh } },
         @{ n = 'Wärme kWh'; e = { if ($null -ne $_.Waerme_gesamt_kWh) { $_.Waerme_gesamt_kWh } else { '≈' + $_.Waerme_kWh } } },
         @{ n = 'AZ Hz'; e = { $_.AZ_Heizen } }, @{ n = 'AZ ges'; e = { $_.AZ_gesamt } }, Hinweis -AutoSize |
@@ -504,6 +566,23 @@ function Invoke-MyUplinkAuswertung {
         Write-Host ''
     }
 
+    # Schaltpunkte, Durchfluss-Plausibilität, COP nach Vorlauf
+    $sStart = @($zyklen | Where-Object { $null -ne $_.Schalt_Start_K } | ForEach-Object { $_.Schalt_Start_K })
+    $sStopp = @($zyklen | Where-Object { $null -ne $_.Schalt_Stopp_K } | ForEach-Object { $_.Schalt_Stopp_K })
+    if ($sStart.Count -ge 3 -and $sStopp.Count -ge 3) {
+        Write-Host ('Schaltpunkte am Pufferfühler (Rücklauf extern minus Rücklauf-Soll, {0} Läufe):' -f [math]::Min($sStart.Count, $sStopp.Count))
+        Write-Host ('  Start  Median {0:+0.0;-0.0} K  (Spanne {1:+0.0;-0.0} bis {2:+0.0;-0.0} K)' -f (Get-MuMedian $sStart), ($sStart | Measure-Object -Minimum).Minimum, ($sStart | Measure-Object -Maximum).Maximum)
+        Write-Host ('  Stopp  Median {0:+0.0;-0.0} K  (Spanne {1:+0.0;-0.0} bis {2:+0.0;-0.0} K)' -f (Get-MuMedian $sStopp), ($sStopp | Measure-Object -Minimum).Minimum, ($sStopp | Measure-Object -Maximum).Maximum)
+        Write-Host '  Liegen Start und Stopp eng um das Soll, regelt die WP auf diesen Fühler; der Abstand ist die Schaltdifferenz.'
+        Write-Host ''
+    }
+    $kz = @($klassen | Where-Object { $_.Min -ge 15 -and $_.Pel -gt 0 })
+    if ($kz.Count -ge 2) {
+        Write-Host 'COP nach Vorlauftemperatur (Heizbetrieb, Leistungswerte der Luxtronik):'
+        $kz | ForEach-Object { [pscustomobject]@{ Vorlauf = $_.Name; Minuten = $_.Min; COP = [math]::Round($_.Pth / $_.Pel, 2); 'AT °C' = Get-MuMittel $_.AT } } |
+            Format-Table -AutoSize | Out-String -Width 120 | Write-Host
+    }
+
     # Einfache Bewertung des Gesamtzeitraums
     Write-Host 'Einschätzung (Faustregeln):'
     $g = $gesamtZeile
@@ -515,15 +594,31 @@ function Invoke-MyUplinkAuswertung {
         if ($g.Lauf_Mittel_min -lt 20) { Write-Host "  ! Ø Laufzeit $($g.Lauf_Mittel_min) min: kurze Läufe (Ziel: mindestens 20 bis 30 min)." -ForegroundColor Yellow }
         else { Write-Host "  + Ø Laufzeit $($g.Lauf_Mittel_min) min: gut." -ForegroundColor Green }
     }
-    if ($null -ne $g.Spreizung_K -and $g.Spreizung_K -gt 10) { Write-Host "  ! Spreizung $($g.Spreizung_K) K: groß (typisch 5 bis 8 K), Volumenstrom prüfen lassen." -ForegroundColor Yellow }
-    if ($null -ne $g.Abstand_WP_Mischer_K -and $g.Abstand_WP_Mischer_K -gt 5) { Write-Host "  ! WP-Vorlauf liegt $($g.Abstand_WP_Mischer_K) K über dem Mischerkreis: WP erzeugt höher als nötig, Heizkurve prüfen lassen." -ForegroundColor Yellow }
+    if ($null -ne $g.Spreizung_K -and $g.Spreizung_K -gt 10) { Write-Host "  ! Spreizung WP-Vorlauf/Rücklauf $($g.Spreizung_K) K: groß (typisch 5 bis 8 K), Volumenstrom im Ladekreis prüfen lassen." -ForegroundColor Yellow }
+    if ($null -ne $g.Abstand_WP_Puffer_K) {
+        # Mit Pufferfühler: Abstand in Ladekreis (WP -> Puffer) und Abstimmung (Puffer -> Heizkreis) trennen
+        if ($g.Abstand_WP_Puffer_K -gt 5) { Write-Host "  ! WP-Vorlauf liegt im Lauf $($g.Abstand_WP_Puffer_K) K über dem Puffer: Der Abstand entsteht im Ladekreis (Spreizung, Volumenstrom)." -ForegroundColor Yellow }
+        if ($null -ne $g.Abstand_Puffer_Mischer_K) {
+            if ($g.Abstand_Puffer_Mischer_K -gt 5) { Write-Host "  ! Puffer liegt im Mittel $($g.Abstand_Puffer_Mischer_K) K über dem Mischer-Soll: Rücklauf-Soll bzw. Heizkurve der WP prüfen." -ForegroundColor Yellow }
+            else { Write-Host "  + Puffer liegt im Mittel $($g.Abstand_Puffer_Mischer_K) K über dem Mischer-Soll: Kurven gut aufeinander abgestimmt." -ForegroundColor Green }
+        }
+    }
+    elseif ($null -ne $g.Abstand_WP_Mischer_K -and $g.Abstand_WP_Mischer_K -gt 5) { Write-Host "  ! WP-Vorlauf liegt $($g.Abstand_WP_Mischer_K) K über dem Mischerkreis-Vorlauf (Ursache: Spreizung, Puffer oder Heizkurve; ohne Pufferfühler nicht trennbar)." -ForegroundColor Yellow }
+    if ($null -ne $g.Durchfluss_rechnerisch_lh -and $null -ne $g.Durchfluss_angezeigt_lh -and $g.Durchfluss_rechnerisch_lh -gt 0) {
+        $verh = $g.Durchfluss_angezeigt_lh / $g.Durchfluss_rechnerisch_lh
+        if ($verh -gt 1.5 -or $verh -lt 0.67) { Write-Host "  ! Durchflussanzeige $($g.Durchfluss_angezeigt_lh) l/h passt nicht zu Leistung und Spreizung (rechnerisch ca. $($g.Durchfluss_rechnerisch_lh) l/h). Anzeige oder tatsächlichen Volumenstrom prüfen lassen." -ForegroundColor Yellow }
+        else { Write-Host "  + Durchflussanzeige $($g.Durchfluss_angezeigt_lh) l/h passt zu Leistung und Spreizung (rechnerisch ca. $($g.Durchfluss_rechnerisch_lh) l/h)." -ForegroundColor Green }
+    }
     if ($null -ne $g.AZ_Heizen) {
         $txt = "Arbeitszahl Heizen $($g.AZ_Heizen) im Zeitraum (Ø Außentemperatur $($g.Aussen_C) °C)"
         if ($null -ne $g.AZ_WW -and $g.AZ_WW -gt $g.AZ_Heizen) { Write-Host "  ! ${txt}: niedriger als Warmwasser ($($g.AZ_WW)), Heiz-Vorlauf vermutlich zu hoch." -ForegroundColor Yellow }
         else { Write-Host "  i ${txt}." }
     }
     if ($null -ne $g.Mischer_Abw_K -and [math]::Abs($g.Mischer_Abw_K) -gt 2) { Write-Host "  ! Mischerkreis weicht im Mittel $($g.Mischer_Abw_K) K vom Soll ab." -ForegroundColor Yellow }
-    if ($null -ne $g.ZUP_ohne_Verdichter_h -and $g.ZUP_ohne_Verdichter_h -ge 0.5) { Write-Host "  i ZUP lief $($g.ZUP_ohne_Verdichter_h) h ohne Verdichter (Heizkreis wird aus Puffer bzw. Weiche versorgt)." }
+    if ($null -ne $g.Mischer_ueber2K_Tag_Proz -and $g.Mischer_ueber2K_Tag_Proz -gt 15) { Write-Host "  ! Mischerkreis tagsüber (6 bis 22 Uhr) in $($g.Mischer_ueber2K_Tag_Proz) % der Minuten mehr als 2 K neben dem Soll (nachts $($g.Mischer_ueber2K_Nacht_Proz) %)." -ForegroundColor Yellow }
+    if ($null -ne $g.HUP_ohne_Verdichter_h -or $null -ne $g.ZUP_ohne_Verdichter_h) {
+        Write-Host ("  i Pumpen in den Verdichterpausen: HUP {0} h, ZUP {1} h. Welche Pumpe welchen Kreis versorgt, hängt von der Hydraulik ab." -f $(if ($null -ne $g.HUP_ohne_Verdichter_h) { $g.HUP_ohne_Verdichter_h } else { '–' }), $(if ($null -ne $g.ZUP_ohne_Verdichter_h) { $g.ZUP_ohne_Verdichter_h } else { '–' }))
+    }
     $offen = @($zyklen | Where-Object { $_.Status -eq 'Aus-Signal fehlt' }).Count
     if ($null -ne $g.Starts -and $g.Starts -gt $g.Starts_erkannt) { Write-Host "  i $($g.Starts - $g.Starts_erkannt) Starts nur im Zähler sichtbar (Läufe kürzer als das Abrufintervall oder Lücken)." }
     if ($offen) { Write-Host "  i $offen Läufe ohne Aus-Signal (Abrufintervall zu grob oder Lücke)." }
@@ -548,7 +643,8 @@ function Invoke-MyUplinkAuswertung {
     }
 
     if ($PassThru) {
-        [pscustomobject]@{ Tage = $tagZeilen; Zyklen = $zyklen; Einstellungen = $aenderungen; ProOffset = $offsetZeilen }
+        [pscustomobject]@{ Tage = $tagZeilen; Zyklen = $zyklen; Einstellungen = $aenderungen; ProOffset = $offsetZeilen
+                           CopNachVorlauf = @($kz | ForEach-Object { [pscustomobject]@{ Vorlauf = $_.Name; Minuten = $_.Min; COP = [math]::Round($_.Pth / $_.Pel, 2); Aussen_C = Get-MuMittel $_.AT } }) }
     }
 }
 
@@ -559,7 +655,7 @@ Invoke-MyUplinkAuswertung [-LogFile <csv>] [-Von <Datum>] [-Bis <Datum>] [-OutDi
                           [-DeviceId <id>] [-KeineDateien] [-PassThru] [-Hilfe]
 
 Wertet die Logdatei aus und zeigt eine Tagesübersicht im Fenster.
-Schreibt zwei Dateien in den Ordner der Logdatei (oder -OutDir):
+Schreibt drei Dateien in den Ordner der Logdatei (oder -OutDir):
   myuplink-auswertung-tage.csv     eine Zeile pro Tag plus Gesamtzeile
   myuplink-auswertung-zyklen.csv   eine Zeile pro Verdichterlauf
   myuplink-auswertung-einstellungen.csv   Heizbetrieb je Wert von "Temperatur + -"
@@ -569,10 +665,16 @@ Kennzahlen:
   Lauf h / Ø Lauf     Laufzeit aus den Schaltzeiten von VD1 (70)
   Starts/Lh           Starts je Laufstunde (Faustregel: höchstens ca. 3)
   VL, RL, Spreiz      Mittel im Heizbetrieb, ohne die ersten -EinschwingMinuten jedes Laufs
-  WP-MK               Abstand WP-Vorlauf zu Mischerkreis-Vorlauf (23), falls geloggt
+  WP-Puf              Abstand WP-Vorlauf zum Pufferfühler "Rücklauf extern" (3) im Lauf = Anteil Ladekreis
+                      (ohne Pufferfühler: Abstand zum Mischerkreis-Vorlauf 23)
+  Puf-MK              Abstand Pufferfühler zum Mischerkreis-Soll (22) = Abstimmung der Heizkurven
+  Schaltpunkte        Pufferfühler minus Rücklauf-Soll (2) bei Start und Stopp jedes Laufs
+  Durchfluss          angezeigter Durchfluss (31) gegen rechnerischen aus Leistung und Spreizung
+  COP nach Vorlauf    COP je Vorlauf-Klasse (nur mit Luxtronik-Leistungswerten)
+  Mischer > 2 K       Anteil der Minuten mit mehr als 2 K Abweichung, Tag (6-22 Uhr) und Nacht
   Mischer Soll/Abw    Mischerkreis-Soll (22) und Abweichung Ist - Soll (nur in den CSV-Dateien)
   Rücklauf extern     Fühler 3 (nur in den CSV-Dateien)
-  HUP/ZUP h           Laufzeit der Pumpen 32/33, ZUP auch ohne Verdichter (nur in der Tages-CSV)
+  HUP/ZUP h           Laufzeit der Pumpen 32/33, auch ohne Verdichter (nur in der Tages-CSV)
   Je Einstellung      Mittelwerte im Heizbetrieb je Wert von "Temperatur + -" (5001),
                       zum Vergleich vor und nach einer Änderung
   Abtau, WW           Anzahl Abtauungen und Warmwasserladungen (Betriebszustand 17)
