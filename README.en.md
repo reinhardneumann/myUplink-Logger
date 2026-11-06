@@ -45,9 +45,10 @@ Keep all files in the same folder.
 4. **Option 1** (Zugangsdaten speichern): enter the Client ID as user name and the Client Secret as password.
 5. **Option 2** (Verbindung testen): lists all data points of your system. You can save the list as CSV on the desktop.
 6. **Option 3** (Logger starten): enter the interval (default 5 min) and optionally your own parameter IDs. Keep the window open, stop with Ctrl+C.
-7. **Option 5** (Logdatei zeigen): shows the log file `%USERPROFILE%\myuplink-log.csv` in Explorer.
+7. **Option 5** (Logdatei zeigen): shows the current log file in Explorer (default: one file per month, `%USERPROFILE%\myuplink-log-YYYY-MM.csv`).
 8. **Option 6** (Logdatei auswerten): analyses the log, optionally for a date range (see [Analysis](#analysis)).
 9. **Option 7** (Luxtronik direkt): set the Luxtronik IP and show its values (see [Luxtronik direct](#luxtronik-direct-modbus-tcp)).
+10. **Option 8** (Monatsdateien): switch monthly files on or off (see [Monthly files](#monthly-files)).
 
 > The default parameter selection matches the author's Paros 4-2. For other devices run option 2 first and enter the IDs you want in option 3.
 
@@ -64,6 +65,27 @@ Keep all files in the same folder.
 4. Optionally, under "Conditions", untick "Start the task only if the computer is on AC power".
 
 Each run reads the last state from the CSV and appends new values only, so no duplicates are created.
+
+## Monthly files
+
+Since version 2.6.0 the logger writes **one file per month**, e.g. `myuplink-log-2026-11.csv`, in the same folder as before. It switches automatically at the start of a month; each new file starts with a complete set of all values, so it can be analysed on its own. An existing `myuplink-log.csv` is left untouched.
+
+- The analysis (option 6 and the web page) reads all `myuplink-log*.csv` files together, including the old one. With `-Von`/`-Bis` monthly files outside the range are skipped.
+- Switch off (back to a single file): option 8 or `Set-MyUplinkMonatsdateien -Ein $false`. The setting also applies to Task Scheduler runs.
+- Current target file: `Get-MyUplinkLogDatei`.
+
+### Copying the log files to the cloud (e.g. for your phone)
+
+Do **not** let the logger write directly into a OneDrive or Google Drive folder: the sync client re-uploads the whole file on every change (every 5 minutes) and locks it temporarily, which can cause lost polls. Instead add a second scheduled task that copies changed files, e.g. every 3 hours:
+
+- Program: `robocopy.exe`
+- Arguments (adjust the target folder; for Google Drive choose "Mirror files"):
+
+  ```
+  "%USERPROFILE%" "C:\Users\<Name>\My Drive\Heatpump" myuplink-log*.csv /R:2 /W:10 /NP /NJH /NJS
+  ```
+
+Robocopy only copies files that changed, usually just the current month. Task Scheduler then often shows result `0x1`, which for robocopy means "files copied", not an error.
 
 ## Using the functions in PowerShell
 
@@ -99,7 +121,7 @@ Semicolon-separated, UTF-8. One row per data point and change. Column names are 
 | `Text` | Text value, e.g. "heating operation", "On" |
 | `Zeitstempel` | Measurement time as reported by myUplink (UTC) |
 
-The file is an **event log**: a value is written only when its myUplink timestamp has changed. For charts, carry each value forward until the next entry (e.g. `ffill()` in pandas).
+Each file is an **event log**: a value is written only when its myUplink timestamp has changed. For charts, carry each value forward until the next entry (e.g. `ffill()` in pandas).
 
 **Decimal separator:** defaults to the Windows setting (comma on German systems). Force it with `Start-MyUplink.bat -Dezimaltrennzeichen "."` or per call `Write-MyUplinkLog -Dezimaltrennzeichen '.'`.
 
@@ -178,7 +200,7 @@ One month of log data takes about 20 seconds.
 The same analysis as menu option 6 as a web page with charts: daily course (flow, buffer, mixing circuit target, heating/hot water/defrost phases), daily values as bars (performance factor, run time, starts and more), COP by flow temperature, switching points, tables and CSV export. The page is in German.
 
 - **The log file stays on your device.** It is processed in the browser and never uploaded; the page has no server part.
-- Getting the file onto the phone: e.g. let the logger write into a OneDrive or Google Drive folder and pick the file via "Logdatei öffnen".
+- Getting the files onto the phone: copy them to a OneDrive or Google Drive folder regularly (see [Copying the log files to the cloud](#copying-the-log-files-to-the-cloud-eg-for-your-phone)) and pick them via "Logdateien öffnen". Several monthly files can be selected at once and are analysed together.
 - On Android in Chrome use "Add to Home screen" / "Install app"; afterwards the page also works offline.
 - Results are identical to `Invoke-MyUplinkAuswertung` (same rules, tested against the PowerShell version).
 

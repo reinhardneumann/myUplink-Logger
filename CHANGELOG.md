@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.6.0 – 2026-11-06
+
+- Neu: Monatsdateien (Standard) – der Logger schreibt pro Monat eine Datei `myuplink-log-JJJJ-MM.csv`; jede neue Datei beginnt mit einem vollständigen Wertesatz. Abschaltbar mit Menüpunkt 8 bzw. `Set-MyUplinkMonatsdateien -Ein $false`; `Get-MyUplinkLogDatei` zeigt die aktuelle Datei
+- Auswertung: `-LogFile` nimmt mehrere Dateien und Platzhalter, Standard `%USERPROFILE%\myuplink-log*.csv` (inkl. früherer `myuplink-log.csv`); bei `-Von`/`-Bis` werden Monatsdateien außerhalb übersprungen
+- Webseite: mehrere Logdateien auf einmal öffnen und zusammen auswerten
+- README: Kopieren der Logdateien in die Cloud mit Robocopy
+
 ## 2.5.0 – 2026-11-06
 
 - Neu: Auswertung im Browser (`auswertung/`), z. B. auf dem Handy: gleiche Rechenregeln wie `Invoke-MyUplinkAuswertung`, mit Diagrammen (Tagesverlauf, Tageswerte, COP nach Vorlauf), Tabellen und CSV-Export; installierbar als App, funktioniert offline; die Logdatei bleibt auf dem Gerät

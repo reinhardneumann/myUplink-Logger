@@ -1,5 +1,5 @@
 // Offline-Cache für die Auswertung. Bei Änderungen die Version erhöhen.
-const CACHE = 'wp-auswertung-2.4.0';
+const CACHE = 'wp-auswertung-2.6.0';
 const DATEIEN = ['./', 'index.html', 'engine.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(DATEIEN))); self.skipWaiting(); });
 self.addEventListener('activate', e => {

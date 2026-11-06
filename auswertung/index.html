@@ -91,9 +91,9 @@ footer a { color: var(--accent); }
   </header>
 
   <section class="card start" id="startCard">
-    <label class="btn" for="file">Logdatei öffnen</label>
-    <input type="file" id="file" accept=".csv,text/csv,text/plain">
-    <div class="drop" id="drop">oder Datei hierher ziehen · Standardname: myuplink-log.csv</div>
+    <label class="btn" for="file">Logdateien öffnen</label>
+    <input type="file" id="file" accept=".csv,text/csv,text/plain" multiple>
+    <div class="drop" id="drop">oder hierher ziehen · eine oder mehrere Dateien, z. B. alle Monatsdateien myuplink-log-JJJJ-MM.csv auf einmal</div>
     <p class="sub" id="status" style="margin-top:12px"></p>
   </section>
 
@@ -105,7 +105,7 @@ footer a { color: var(--accent); }
         <label class="f hidden" id="devWrap">Gerät<select id="dev"></select></label>
         <button class="btn small" id="apply">Auswerten</button>
         <button class="btn small ghost" id="reset">Ganzer Zeitraum</button>
-        <label class="btn small ghost" for="file">Andere Datei</label>
+        <label class="btn small ghost" for="file">Andere Dateien</label>
       </div>
       <p class="sub" id="range" style="margin-top:10px"></p>
     </section>
@@ -178,7 +178,7 @@ footer a { color: var(--accent); }
   </div>
 
   <footer>
-    myUplink-Logger · Auswertung 2.4.0 · <a href="https://github.com/reinhardneumann/myUplink-Logger">GitHub</a> · MIT-Lizenz<br>
+    myUplink-Logger · Auswertung 2.6.0 · <a href="https://github.com/reinhardneumann/myUplink-Logger">GitHub</a> · MIT-Lizenz<br>
     Kein Angebot von alpha innotec oder myUplink. Werte ohne Gewähr.
   </footer>
 </main>
@@ -206,33 +206,42 @@ footer a { color: var(--accent); }
 
   // ---------- Datei laden ----------
   function status(html) { $('status').innerHTML = html; }
-  function lade(datei) {
-    if (!datei) return;
-    dateiName = datei.name;
-    status('<span class="spinner"></span> Lese ' + esc(datei.name) + ' …');
+  const liesText = datei => new Promise((ok, fehler) => {
     const fr = new FileReader();
-    fr.onerror = () => status('<span class="err">Datei konnte nicht gelesen werden.</span>');
-    fr.onload = () => setTimeout(() => {
-      try {
-        zeilen = E.parseCsv(fr.result);
-        $('von').value = ''; $('bis').value = '';
-        auswerten();
-      } catch (e) { zeigeFehler(e); }
-    }, 30);
+    fr.onerror = () => fehler(new Error('Datei ' + datei.name + ' konnte nicht gelesen werden.'));
+    fr.onload = () => ok(fr.result);
     fr.readAsText(datei, 'utf-8');
+  });
+  // Eine oder mehrere Logdateien (z. B. Monatsdateien) lesen und zusammenführen
+  async function lade(liste) {
+    const dateien = Array.from(liste || []).filter(d => !/^myuplink-auswertung-/i.test(d.name))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (!dateien.length) return;
+    dateiName = dateien.length === 1 ? dateien[0].name : dateien.length + ' Dateien (' + dateien[0].name + ' … ' + dateien[dateien.length - 1].name + ')';
+    status('<span class="spinner"></span> Lese ' + esc(dateiName) + ' …');
+    try {
+      const alle = [];
+      for (const d of dateien) {
+        const z = E.parseCsv(await liesText(d));
+        for (let i = 0; i < z.length; i++) alle.push(z[i]);
+      }
+      zeilen = alle;
+      $('von').value = ''; $('bis').value = '';
+      setTimeout(auswerten, 30);
+    } catch (e) { zeigeFehler(e); }
   }
   function zeigeFehler(e) {
     $('startCard').classList.remove('hidden');
     $('out').classList.add('hidden');
     status('<span class="err">' + esc(e.message || e) + '</span>');
   }
-  $('file').addEventListener('change', e => { lade(e.target.files[0]); e.target.value = ''; });
+  $('file').addEventListener('change', e => { lade(e.target.files); e.target.value = ''; });
   const drop = $('drop');
   ['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
   ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
-  drop.addEventListener('drop', e => lade(e.dataTransfer.files[0]));
+  drop.addEventListener('drop', e => { e.stopPropagation(); lade(e.dataTransfer.files); });
   document.addEventListener('dragover', e => e.preventDefault());
-  document.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer.files[0]) lade(e.dataTransfer.files[0]); });
+  document.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer.files.length) lade(e.dataTransfer.files); });
 
   function auswerten() {
     const opt = {};

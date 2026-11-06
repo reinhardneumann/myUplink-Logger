@@ -43,9 +43,10 @@ Alle Dateien gehören in denselben Ordner.
 4. **Menüpunkt 1:** Client ID als Benutzername, Client Secret als Kennwort eingeben.
 5. **Menüpunkt 2:** Verbindung testen. Es erscheinen alle Messpunkte der Anlage. Die Liste lässt sich als CSV auf dem Desktop speichern.
 6. **Menüpunkt 3:** Logger starten. Intervall (Standard 5 min) und optional eigene Parameter-IDs angeben. Das Fenster muss offen bleiben, Beenden mit Strg+C.
-7. **Menüpunkt 5:** zeigt die Logdatei `%USERPROFILE%\myuplink-log.csv` im Explorer.
+7. **Menüpunkt 5:** zeigt die aktuelle Logdatei im Explorer (Standard: eine Datei pro Monat, `%USERPROFILE%\myuplink-log-JJJJ-MM.csv`).
 8. **Menüpunkt 6:** wertet die Logdatei aus, optional für einen Zeitraum (siehe [Auswertung](#auswertung)).
 9. **Menüpunkt 7:** IP der Luxtronik festlegen und Werte direkt anzeigen (siehe [Luxtronik direkt](#luxtronik-direkt-modbus-tcp)).
+10. **Menüpunkt 8:** Monatsdateien ein- oder ausschalten (siehe [Monatsdateien](#monatsdateien)).
 
 > Die Standardauswahl der Parameter passt zur Paros 4-2 des Autors. Bei einer anderen Anlage zuerst Menüpunkt 2 ausführen und die gewünschten IDs bei Menüpunkt 3 eingeben.
 
@@ -64,6 +65,27 @@ Für den Betrieb im Hintergrund ohne offenes Fenster:
 4. Optional unter „Bedingungen“ die Option „Nur starten, falls Computer im Netzbetrieb“ abwählen.
 
 Jeder Start liest den letzten Stand aus der CSV und schreibt nur neue Werte. Duplikate entstehen nicht.
+
+## Monatsdateien
+
+Seit Version 2.6.0 schreibt der Logger **pro Monat eine eigene Datei**, z. B. `myuplink-log-2026-11.csv`, im selben Ordner wie bisher. Am Monatsanfang wird automatisch gewechselt; jede neue Datei beginnt mit einem vollständigen Satz aller Werte und ist dadurch auch allein auswertbar. Eine frühere `myuplink-log.csv` bleibt unverändert liegen.
+
+- Die Auswertung (Menüpunkt 6 und Webseite) liest alle Dateien `myuplink-log*.csv` zusammen, die alte Datei eingeschlossen. Mit `-Von`/`-Bis` werden Monatsdateien außerhalb des Zeitraums gar nicht erst gelesen.
+- Ausschalten (alles wieder in eine Datei): Menüpunkt 8 oder `Set-MyUplinkMonatsdateien -Ein $false`. Die Einstellung gilt auch für die Aufgabenplanung.
+- Welche Datei gerade beschrieben wird: `Get-MyUplinkLogDatei`.
+
+### Logdateien in die Cloud kopieren (z. B. für das Handy)
+
+Den Logger **nicht direkt** in einen OneDrive- oder Google-Drive-Ordner schreiben lassen: Der Sync-Dienst lädt bei jeder Änderung die ganze Datei neu hoch (alle 5 Minuten) und sperrt sie dabei zeitweise, sodass Abrufe verloren gehen können. Besser eine zweite Aufgabe in der Aufgabenplanung, die z. B. alle 3 Stunden nur geänderte Dateien kopiert:
+
+- Programm: `robocopy.exe`
+- Argumente (Zielordner anpassen; bei Google Drive „Dateien spiegeln“ wählen):
+
+  ```
+  "%USERPROFILE%" "C:\Users\<Name>\Meine Ablage\Wärmepumpe" myuplink-log*.csv /R:2 /W:10 /NP /NJH /NJS
+  ```
+
+Robocopy kopiert nur Dateien, die sich geändert haben, also in der Regel nur die aktuelle Monatsdatei. Die Aufgabenplanung zeigt danach oft das Ergebnis `0x1` an: Das bedeutet bei Robocopy „Dateien kopiert“ und ist kein Fehler.
 
 ## Nutzung direkt in PowerShell
 
@@ -99,7 +121,7 @@ Trennzeichen Semikolon, UTF-8. Eine Zeile pro Messpunkt und Änderung:
 | `Text` | Klartext, z. B. „heating operation“, „On“ |
 | `Zeitstempel` | Messzeitpunkt laut myUplink (UTC) |
 
-Die Datei ist ein **Ereignisprotokoll**: Ein Wert wird nur geschrieben, wenn sich sein Zeitstempel in myUplink geändert hat. Für Diagramme jeden Wert bis zum nächsten Eintrag fortschreiben (in Excel z. B. per Pivot und „Leere Zellen mit vorherigem Wert füllen“, in Python mit `ffill()`).
+Jede Datei ist ein **Ereignisprotokoll**: Ein Wert wird nur geschrieben, wenn sich sein Zeitstempel in myUplink geändert hat. Für Diagramme jeden Wert bis zum nächsten Eintrag fortschreiben (in Excel z. B. per Pivot und „Leere Zellen mit vorherigem Wert füllen“, in Python mit `ffill()`).
 
 **Dezimaltrennzeichen:** Standard ist die Windows-Einstellung (deutsch also Komma). Festlegen mit `Start-MyUplink.bat -Dezimaltrennzeichen ","` bzw. `"."` oder pro Aufruf `Write-MyUplinkLog -Dezimaltrennzeichen '.'`.
 
@@ -178,7 +200,7 @@ Ein Monat Log wird in etwa 20 Sekunden ausgewertet.
 Die gleiche Auswertung wie Menüpunkt 6 als Webseite, mit Diagrammen: Tagesverlauf (WP-Vorlauf, Puffer, Mischerkreis-Soll, Heiz-, Warmwasser- und Abtauphasen), Tageswerte als Balken (Arbeitszahl, Laufzeit, Starts und mehr), COP nach Vorlauftemperatur, Schaltpunkte, Tabellen und CSV-Export.
 
 - **Die Logdatei bleibt auf dem Gerät.** Sie wird im Browser ausgewertet und nirgends hochgeladen; die Seite hat keinen Server-Teil.
-- Datei öffnen: z. B. den Logger in einen OneDrive- oder Google-Drive-Ordner schreiben lassen (`Write-MyUplinkLog -OutFile …`) und die Datei auf dem Handy über „Logdatei öffnen“ auswählen.
+- Dateien aufs Handy: die Logdateien regelmäßig in einen OneDrive- oder Google-Drive-Ordner kopieren (siehe [Logdateien in die Cloud kopieren](#logdateien-in-die-cloud-kopieren-z-b-für-das-handy)) und auf dem Handy über „Logdateien öffnen“ auswählen. Mehrere Monatsdateien lassen sich auf einmal markieren und werden zusammen ausgewertet.
 - Auf Android in Chrome über das Menü „Zum Startbildschirm hinzufügen“ bzw. „App installieren“ wie eine App ablegen; die Seite funktioniert danach auch offline.
 - Ergebnisse sind identisch mit `Invoke-MyUplinkAuswertung` (gleiche Rechenregeln, gegen die PowerShell-Version getestet).
 

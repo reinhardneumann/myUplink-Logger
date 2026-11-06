@@ -55,6 +55,8 @@ Funktionen:
   Write-MyUplinkLog         Ein Abrufzyklus: nur geänderte Werte an die CSV anhängen
   Start-MyUplinkLogger      Dauerschleife, ruft Write-MyUplinkLog im Intervall auf
   Show-MyUplinkHilfe        Diese Hilfe
+  Set-MyUplinkMonatsdateien -Ein $true|$false   Pro Monat eine Datei (Standard) oder eine durchgehende
+  Get-MyUplinkLogDatei      Zeigt die Datei, in die gerade geschrieben wird
 
 Luxtronik direkt (Datei Luxtronik-Modbus.ps1, im Menü Punkt 7):
   Set-LuxtronikIP <IP>      IP der Steuerung merken; der Logger liest dann zusätzlich über Modbus TCP
@@ -106,7 +108,9 @@ Write-MyUplinkLog [-OutFile <csv>] [-CredentialPath <Datei>] [-ParameterId <id,.
 Ein einzelner Abrufzyklus. Hängt nur Zeilen an die CSV an, deren Zeitstempel sich seit
 dem letzten Eintrag geändert hat. Der letzte Stand wird beim ersten Aufruf aus der CSV
 gelesen, sodass nach einem Neustart keine Duplikate entstehen.
-  -OutFile      Standard: %USERPROFILE%\myuplink-log.csv (Trennzeichen ;, UTF-8)
+  -OutFile      Standard: %USERPROFILE%\myuplink-log.csv (Trennzeichen ;, UTF-8). Bei Monatsdateien
+                (Standard) wird daraus myuplink-log-JJJJ-MM.csv im selben Ordner.
+  -Monatsdateien  $true/$false; Standard: Einstellung von Set-MyUplinkMonatsdateien (ein)
   -ParameterId  Standard: 0,1,2,3,5,6,17,21,22,23,31,32,33,39,45,46,57,66,67,70,5001,5668,5674,5700,5728,5729
   -Dezimaltrennzeichen  Auto (Standard) = Einstellung von Windows, bei deutscher Einstellung also Komma,
                 wie es deutsches Excel erwartet. Mit ',' oder '.' lässt es sich erzwingen.
@@ -236,6 +240,54 @@ function Get-MyUplinkData {
 # Standardauswahl für die Auswertung (Takt, Temperaturen, Leistung, Drücke, Zähler)
 $script:DefaultLogParameterIds = @(0,1,2,3,5,6,17,21,22,23,31,32,33,39,45,46,57,66,67,70,5001,5668,5674,5700,5728,5729)
 $script:LastSeen = $null
+$script:LastSeenDatei = $null
+
+# Monatsdateien: pro Monat eine eigene Logdatei (Standard). Abschalten mit Set-MyUplinkMonatsdateien -Ein $false
+$script:MonatsdateienAusPath = Join-Path $env:USERPROFILE '.myuplink\monatsdateien-aus.txt'
+
+function Get-MyUplinkMonatsdateien {
+    # $true = pro Monat eine Datei (Standard), $false = eine durchgehende Datei
+    -not (Test-Path $script:MonatsdateienAusPath)
+}
+
+function Set-MyUplinkMonatsdateien {
+    <#
+    .SYNOPSIS
+      Schaltet die Monatsdateien ein (Standard) oder aus. Gilt für Menü, Logger und Aufgabenplanung.
+    .EXAMPLE
+      Set-MyUplinkMonatsdateien -Ein $false
+    #>
+    param([Parameter(Mandatory)][bool]$Ein)
+    $dir = Split-Path $script:MonatsdateienAusPath
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+    if ($Ein) {
+        if (Test-Path $script:MonatsdateienAusPath) { Remove-Item $script:MonatsdateienAusPath }
+        Write-Host 'Monatsdateien eingeschaltet: pro Monat eine Datei, z. B. myuplink-log-2026-11.csv.'
+    } else {
+        Set-Content -Path $script:MonatsdateienAusPath -Value 'Monatsdateien ausgeschaltet'
+        Write-Host 'Monatsdateien ausgeschaltet: alles in eine Datei (myuplink-log.csv).'
+    }
+    Write-Host 'Gilt ab dem nächsten Abruf; ein laufender Logger (Menüpunkt 3) muss neu gestartet werden.'
+}
+
+function Get-MyUplinkLogDatei {
+    <#
+    .SYNOPSIS
+      Liefert die Datei, in die geschrieben wird: bei Monatsdateien <Name>-JJJJ-MM.csv neben -OutFile.
+    #>
+    param(
+        [string]$OutFile = (Join-Path $env:USERPROFILE 'myuplink-log.csv'),
+        [bool]$Monatsdateien = (Get-MyUplinkMonatsdateien),
+        [datetime]$Zeit = (Get-Date)
+    )
+    if (-not $Monatsdateien) { return $OutFile }
+    $dir = Split-Path $OutFile -Parent
+    if (-not $dir) { $dir = '.' }
+    $name = [IO.Path]::GetFileNameWithoutExtension($OutFile)
+    $ext = [IO.Path]::GetExtension($OutFile)
+    if (-not $ext) { $ext = '.csv' }
+    Join-Path $dir ('{0}-{1}{2}' -f $name, $Zeit.ToString('yyyy-MM'), $ext)
+}
 
 # Optional: Werte direkt aus der Luxtronik (Modbus TCP) mitloggen, siehe Luxtronik-Modbus.ps1
 $script:LuxtronikModul = Join-Path $PSScriptRoot 'Luxtronik-Modbus.ps1'
@@ -272,16 +324,22 @@ function Write-MyUplinkLog {
         [ValidateSet('Auto', ',', '.')]
         [string]$Dezimaltrennzeichen = $script:DefaultDezimaltrennzeichen,   # Auto = Einstellung von Windows (wie in Excel)
         [string]$LuxtronikIP = (Get-MuLuxtronikVorgabe),   # leer = keine Modbus-Abfrage
+        [bool]$Monatsdateien = (Get-MyUplinkMonatsdateien),   # $true = pro Monat eine Datei neben -OutFile
         [switch]$Hilfe
     )
 
     if ($Hilfe) { Show-MyUplinkHilfe -Funktion Write-MyUplinkLog; return }
 
-    # Zustand beim ersten Aufruf aus der vorhandenen CSV rekonstruieren (neustartsicher)
-    if ($null -eq $script:LastSeen) {
+    # Zieldatei (bei Monatsdateien wechselt sie am Monatsanfang)
+    $ziel = Get-MyUplinkLogDatei -OutFile $OutFile -Monatsdateien $Monatsdateien
+
+    # Zustand aus der Zieldatei rekonstruieren (neustartsicher). Eine neue Monatsdatei beginnt
+    # dadurch mit einem vollständigen Satz aller Werte und ist für sich allein auswertbar.
+    if ($null -eq $script:LastSeen -or $script:LastSeenDatei -ne $ziel) {
         $script:LastSeen = @{}
-        if (Test-Path $OutFile) {
-            Import-Csv -Path $OutFile -Delimiter ';' | ForEach-Object {
+        $script:LastSeenDatei = $ziel
+        if (Test-Path $ziel) {
+            Import-Csv -Path $ziel -Delimiter ';' | ForEach-Object {
                 if ([string]$_.ParameterId -like 'MB*') { $script:LastSeen["$($_.Geraet)|$($_.ParameterId)"] = ConvertTo-MuSignatur $_.Wert }
                 else { $script:LastSeen["$($_.Geraet)|$($_.ParameterId)"] = [string]$_.Zeitstempel }
             }
@@ -330,9 +388,9 @@ function Write-MyUplinkLog {
     }
 
     if ($neu.Count -gt 0) {
-        $neu | Export-Csv -Path $OutFile -Append -NoTypeInformation -Delimiter ';' -Encoding UTF8
+        $neu | Export-Csv -Path $ziel -Append -NoTypeInformation -Delimiter ';' -Encoding UTF8
     }
-    Write-Verbose "$(Get-Date -Format s): $($neu.Count) neue Werte geschrieben (davon $($neuLux.Count) aus der Luxtronik)"
+    Write-Verbose "$(Get-Date -Format s): $($neu.Count) neue Werte in $(Split-Path $ziel -Leaf) geschrieben (davon $($neuLux.Count) aus der Luxtronik)"
     if ($fehler) { throw $fehler }
 }
 
@@ -354,16 +412,18 @@ function Start-MyUplinkLogger {
         [ValidateSet('Auto', ',', '.')]
         [string]$Dezimaltrennzeichen = $script:DefaultDezimaltrennzeichen,
         [string]$LuxtronikIP = (Get-MuLuxtronikVorgabe),
+        [bool]$Monatsdateien = (Get-MyUplinkMonatsdateien),
         [switch]$Hilfe
     )
 
     if ($Hilfe) { Show-MyUplinkHilfe -Funktion Start-MyUplinkLogger; return }
 
-    Write-Host "Logger läuft, Intervall $IntervalMinutes min, Datei $OutFile (Abbruch mit Strg+C)"
+    Write-Host "Logger läuft, Intervall $IntervalMinutes min, Datei $(Get-MyUplinkLogDatei -OutFile $OutFile -Monatsdateien $Monatsdateien) (Abbruch mit Strg+C)"
+    if ($Monatsdateien) { Write-Host 'Pro Monat eine eigene Datei; am Monatsanfang wird automatisch gewechselt.' }
     if ($LuxtronikIP) { Write-Host "Zusätzlich Luxtronik über Modbus: $LuxtronikIP" }
     while ($true) {
         try {
-            Write-MyUplinkLog -OutFile $OutFile -CredentialPath $CredentialPath -ParameterId $ParameterId -Name $Name -Dezimaltrennzeichen $Dezimaltrennzeichen -LuxtronikIP $LuxtronikIP
+            Write-MyUplinkLog -OutFile $OutFile -CredentialPath $CredentialPath -ParameterId $ParameterId -Name $Name -Dezimaltrennzeichen $Dezimaltrennzeichen -LuxtronikIP $LuxtronikIP -Monatsdateien $Monatsdateien
         }
         catch {
             Write-Warning "$(Get-Date -Format s) Abruf fehlgeschlagen: $($_.Exception.Message)"

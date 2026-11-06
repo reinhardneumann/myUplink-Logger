@@ -33,6 +33,7 @@ function Show-Menue {
     Write-Host '  5  Logdatei im Explorer zeigen'
     Write-Host '  6  Logdatei auswerten (Takte, Tageswerte)'
     Write-Host '  7  Luxtronik direkt (Modbus): IP festlegen / Werte anzeigen'
+    Write-Host ("  8  Monatsdateien ein/aus (zurzeit: {0})" -f $(if (Get-MyUplinkMonatsdateien) { 'ein' } else { 'aus' }))
     Write-Host '  0  Beenden'
     Write-Host ''
 }
@@ -82,7 +83,7 @@ while ($true) {
                 $param = @{ IntervalMinutes = [int]$min; OutFile = $logDatei; Dezimaltrennzeichen = $Dezimaltrennzeichen }
                 if ($ids) { $param.ParameterId = @($ids -split '[,; ]+' | Where-Object { $_ }) }
                 Write-Host ''
-                Write-Host "Logdatei: $logDatei"
+                Write-Host "Logdatei: $(Get-MyUplinkLogDatei -OutFile $logDatei)"
                 $dezAnzeige = if ($Dezimaltrennzeichen -eq 'Auto') { 'Auto (Einstellung von Windows)' } else { "'$Dezimaltrennzeichen'" }
                 Write-Host "Dezimaltrennzeichen: $dezAnzeige"
                 Write-Host 'Zum Beenden das Fenster schließen oder Strg+C drücken.'
@@ -94,18 +95,21 @@ while ($true) {
                 Warte
             }
             '5' {
-                if (Test-Path $logDatei) {
-                    Start-Process explorer.exe -ArgumentList "/select,`"$logDatei`""
+                $aktuell = Get-MyUplinkLogDatei -OutFile $logDatei
+                if (-not (Test-Path $aktuell)) { $aktuell = $logDatei }
+                if (Test-Path $aktuell) {
+                    Start-Process explorer.exe -ArgumentList "/select,`"$aktuell`""
                 } else {
                     Write-Host ''
-                    Write-Host "Noch keine Logdatei vorhanden: $logDatei"
+                    Write-Host "Noch keine Logdatei vorhanden: $(Get-MyUplinkLogDatei -OutFile $logDatei)"
                     Warte
                 }
             }
             '6' {
-                if (-not (Test-Path $logDatei)) {
+                $muster = Join-Path (Split-Path $logDatei) 'myuplink-log*.csv'
+                if (-not (Test-Path $muster)) {
                     Write-Host ''
-                    Write-Host "Noch keine Logdatei vorhanden: $logDatei"
+                    Write-Host "Noch keine Logdatei vorhanden: $muster"
                     Warte
                     break
                 }
@@ -113,7 +117,7 @@ while ($true) {
                 Write-Host 'Zeitraum eingrenzen (leer lassen = alles):'
                 $von = Read-Host 'Von (TT.MM.JJJJ)'
                 $bis = Read-Host 'Bis (TT.MM.JJJJ)'
-                $param = @{ LogFile = $logDatei; Dezimaltrennzeichen = $Dezimaltrennzeichen }
+                $param = @{ LogFile = $muster; Dezimaltrennzeichen = $Dezimaltrennzeichen }
                 $de = [Globalization.CultureInfo]::GetCultureInfo('de-DE')
                 if ($von) { $param.Von = [datetime]::ParseExact($von, 'dd.MM.yyyy', $de) }
                 if ($bis) { $param.Bis = [datetime]::ParseExact($bis, 'dd.MM.yyyy', $de) }
@@ -136,6 +140,16 @@ while ($true) {
                     Write-Host ''
                     Write-Host 'Der Logger (Menüpunkt 3 bzw. Aufgabenplanung) liest diese Werte ab dem nächsten Start mit.'
                 }
+                Warte
+            }
+            '8' {
+                Write-Host ''
+                $ein = Get-MyUplinkMonatsdateien
+                Write-Host ("Monatsdateien sind zurzeit {0}." -f $(if ($ein) { 'eingeschaltet' } else { 'ausgeschaltet' }))
+                Write-Host 'Eingeschaltet: pro Monat eine Datei (myuplink-log-JJJJ-MM.csv), gut zum Kopieren in die Cloud.'
+                Write-Host 'Ausgeschaltet: alles in myuplink-log.csv. Die Auswertung liest in beiden Fällen alle Dateien.'
+                $antwort = Read-Host ("{0}? (j/n)" -f $(if ($ein) { 'Ausschalten' } else { 'Einschalten' }))
+                if ($antwort -eq 'j') { Set-MyUplinkMonatsdateien -Ein (-not $ein) }
                 Warte
             }
             '0' { return }

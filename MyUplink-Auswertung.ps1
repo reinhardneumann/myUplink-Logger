@@ -117,7 +117,7 @@ function Invoke-MyUplinkAuswertung {
     #>
     [CmdletBinding()]
     param(
-        [string]$LogFile = (Join-Path $env:USERPROFILE 'myuplink-log.csv'),
+        [string[]]$LogFile = (Join-Path $env:USERPROFILE 'myuplink-log*.csv'),   # mehrere Dateien und Platzhalter möglich
         [string]$OutDir,                         # Standard: Ordner der Logdatei
         [datetime]$Von,                          # erster Tag (einschließlich)
         [datetime]$Bis,                          # letzter Tag (einschließlich)
@@ -133,14 +133,25 @@ function Invoke-MyUplinkAuswertung {
     )
 
     if ($Hilfe) { Show-MyUplinkAuswertungHilfe; return }
-    if (-not (Test-Path $LogFile)) { throw "Logdatei nicht gefunden: $LogFile" }
+    # Dateien auflösen (Platzhalter, Monatsdateien), bei Von/Bis Monatsdateien außerhalb überspringen
+    $dateien = @(foreach ($lf in $LogFile) { Get-ChildItem -Path $lf -File -ErrorAction SilentlyContinue })
+    $dateien = @($dateien | Where-Object { $_.Name -notlike 'myuplink-auswertung-*' } | Sort-Object FullName -Unique)
+    if ($PSBoundParameters.ContainsKey('Von') -or $PSBoundParameters.ContainsKey('Bis')) {
+        $dateien = @($dateien | Where-Object {
+            if ($_.Name -notmatch '-(\d{4})-(\d{2})\.csv$') { return $true }
+            $mA = [datetime]::new([int]$Matches[1], [int]$Matches[2], 1); $mE = $mA.AddMonths(1)
+            -not (($PSBoundParameters.ContainsKey('Von') -and $mE -le $Von.Date) -or ($PSBoundParameters.ContainsKey('Bis') -and $mA -gt $Bis.Date))
+        })
+    }
+    if ($dateien.Count -eq 0) { throw "Logdatei nicht gefunden: $($LogFile -join ', ')" }
 
     $inv = [Globalization.CultureInfo]::InvariantCulture
     $tpm = [TimeSpan]::TicksPerMinute
 
     # ---- 1. CSV einlesen und Messreihen bilden -------------------------------------------
-    Write-Host "Lese $LogFile ..."
-    $zeilen = @(Import-Csv -Path $LogFile -Delimiter ';' -Encoding UTF8)
+    if ($dateien.Count -eq 1) { Write-Host "Lese $($dateien[0].FullName) ..." }
+    else { Write-Host "Lese $($dateien.Count) Dateien: $(($dateien | ForEach-Object Name) -join ', ') ..." }
+    $zeilen = @(foreach ($d in $dateien) { Import-Csv -Path $d.FullName -Delimiter ';' -Encoding UTF8 })
     if ($zeilen.Count -eq 0) { throw 'Die Logdatei enthält keine Daten.' }
 
     $geraete = @($zeilen | Where-Object { [string]$_.ParameterId -notlike 'MB*' } | ForEach-Object { $_.Geraet } | Select-Object -Unique)
@@ -626,7 +637,7 @@ function Invoke-MyUplinkAuswertung {
     else { Write-Host '  Strom, Wärme und Arbeitszahlen stammen aus den Zählern der Luxtronik (Modbus).' }
 
     if (-not $KeineDateien) {
-        if (-not $OutDir) { $OutDir = Split-Path -Parent (Resolve-Path $LogFile) }
+        if (-not $OutDir) { $OutDir = $dateien[0].DirectoryName }
         $fTage = Join-Path $OutDir 'myuplink-auswertung-tage.csv'
         $fZyk  = Join-Path $OutDir 'myuplink-auswertung-zyklen.csv'
         $fOff  = Join-Path $OutDir 'myuplink-auswertung-einstellungen.csv'
@@ -650,11 +661,12 @@ function Invoke-MyUplinkAuswertung {
 
 function Show-MyUplinkAuswertungHilfe {
     Write-Host @'
-Invoke-MyUplinkAuswertung [-LogFile <csv>] [-Von <Datum>] [-Bis <Datum>] [-OutDir <Ordner>]
+Invoke-MyUplinkAuswertung [-LogFile <csv,...>] [-Von <Datum>] [-Bis <Datum>] [-OutDir <Ordner>]
                           [-Dezimaltrennzeichen <Auto|,|.>] [-EinschwingMinuten 10] [-LueckeMinuten 30]
                           [-DeviceId <id>] [-KeineDateien] [-PassThru] [-Hilfe]
 
-Wertet die Logdatei aus und zeigt eine Tagesübersicht im Fenster.
+Wertet die Logdatei(en) aus und zeigt eine Tagesübersicht im Fenster. Standard: alle Dateien
+%USERPROFILE%\myuplink-log*.csv (Monatsdateien und die frühere myuplink-log.csv) zusammen.
 Schreibt drei Dateien in den Ordner der Logdatei (oder -OutDir):
   myuplink-auswertung-tage.csv     eine Zeile pro Tag plus Gesamtzeile
   myuplink-auswertung-zyklen.csv   eine Zeile pro Verdichterlauf
