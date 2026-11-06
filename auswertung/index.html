@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WP-Auswertung</title>
+<meta name="description" content="Auswertung der Logdatei des myUplink-Loggers im Browser: Takte, Arbeitszahl, Ladekreis, Heizkurve. Die Datei bleibt auf dem Gerät.">
+<meta name="theme-color" content="#1f6feb">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root {
+  --bg: #f6f7f9; --card: #ffffff; --text: #1c2128; --muted: #5b6573; --line: #e3e6ea; --grid: #eceef1;
+  --accent: #1f6feb; --accent-soft: rgba(31,111,235,.12); --ref: #8a94a3; --puffer: #4b5563;
+  --ok: #1a7f37; --warn: #b35900; --info: #57606a; --run: rgba(110,118,129,.13); --ww: rgba(214,130,0,.18); --abtau: rgba(9,105,218,.14);
+  --radius: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1216; --card: #171b21; --text: #e6e9ed; --muted: #9aa4b1; --line: #2a3038; --grid: #222830;
+    --accent: #4c9aff; --accent-soft: rgba(76,154,255,.16); --ref: #7d8794; --puffer: #c3cad3;
+    --ok: #3fb950; --warn: #e3a03a; --info: #9aa4b1; --run: rgba(160,170,182,.12); --ww: rgba(227,160,58,.18); --abtau: rgba(76,154,255,.16);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1216; --card: #171b21; --text: #e6e9ed; --muted: #9aa4b1; --line: #2a3038; --grid: #222830;
+  --accent: #4c9aff; --accent-soft: rgba(76,154,255,.16); --ref: #7d8794; --puffer: #c3cad3;
+  --ok: #3fb950; --warn: #e3a03a; --info: #9aa4b1; --run: rgba(160,170,182,.12); --ww: rgba(227,160,58,.18); --abtau: rgba(76,154,255,.16);
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 960px; margin: 0 auto; padding: 16px 16px 48px; padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+h1 { font-size: 22px; margin: 4px 0 2px; letter-spacing: -.01em; }
+h2 { font-size: 16px; margin: 0 0 10px; }
+p { margin: 0 0 8px; }
+.sub { color: var(--muted); font-size: 13px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-top: 14px; }
+.start { text-align: center; padding: 28px 16px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 18px; border-radius: 10px;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+.btn.ghost { background: transparent; color: var(--accent); }
+.btn.small { min-height: 36px; padding: 0 12px; font-size: 14px; }
+.btn:disabled { opacity: .5; cursor: default; }
+input[type=file] { display: none; }
+.drop { border: 2px dashed var(--line); border-radius: var(--radius); padding: 18px; margin-top: 14px; color: var(--muted); font-size: 13px; }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+label.f input, label.f select, select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; min-height: 40px; padding: 0 10px; }
+.kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+@media (min-width: 640px) { .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.kpi { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; }
+.kpi .l { font-size: 12px; color: var(--muted); }
+.kpi .v { font-size: 22px; font-weight: 650; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.kpi .v small { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 2px; }
+.kpi .h { font-size: 12px; color: var(--muted); margin-top: 2px; }
+ul.hints { list-style: none; padding: 0; margin: 0; }
+ul.hints li { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+ul.hints li:first-child { border-top: 0; padding-top: 0; }
+.dot { flex: 0 0 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; color: #fff; margin-top: 1px; }
+.dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.info { background: var(--info); } .dot.none { background: transparent; border: 1px solid var(--line); }
+.nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.nav .d { font-weight: 600; text-align: center; flex: 1; font-variant-numeric: tabular-nums; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 5px; }
+svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
+svg.chart text { font-family: inherit; }
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -14px; padding: 0 14px; }
+table { border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+th, td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: right; }
+th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--card); }
+td:first-child, th:first-child { text-align: left; position: sticky; left: 0; background: var(--card); }
+tr.total td { font-weight: 650; }
+details summary { cursor: pointer; font-weight: 600; min-height: 32px; display: flex; align-items: center; }
+.muted { color: var(--muted); }
+.err { color: var(--warn); font-weight: 600; }
+footer { margin-top: 24px; font-size: 12px; color: var(--muted); text-align: center; }
+footer a { color: var(--accent); }
+.hidden { display: none !important; }
+.spinner { width: 20px; height: 20px; border: 3px solid var(--accent-soft); border-top-color: var(--accent); border-radius: 50%; animation: s 0.8s linear infinite; display: inline-block; vertical-align: middle; }
+@keyframes s { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Wärmepumpen-Auswertung</h1>
+    <p class="sub">Für Logdateien des <a href="https://github.com/reinhardneumann/myUplink-Logger" style="color:var(--accent)">myUplink-Loggers</a>. Die Datei wird nur auf diesem Gerät ausgewertet und nirgends hochgeladen.</p>
+  </header>
+
+  <section class="card start" id="startCard">
+    <label class="btn" for="file">Logdatei öffnen</label>
+    <input type="file" id="file" accept=".csv,text/csv,text/plain">
+    <div class="drop" id="drop">oder Datei hierher ziehen · Standardname: myuplink-log.csv</div>
+    <p class="sub" id="status" style="margin-top:12px"></p>
+  </section>
+
+  <div id="out" class="hidden">
+    <section class="card">
+      <div class="row">
+        <label class="f">Von<input type="date" id="von"></label>
+        <label class="f">Bis<input type="date" id="bis"></label>
+        <label class="f hidden" id="devWrap">Gerät<select id="dev"></select></label>
+        <button class="btn small" id="apply">Auswerten</button>
+        <button class="btn small ghost" id="reset">Ganzer Zeitraum</button>
+        <label class="btn small ghost" for="file">Andere Datei</label>
+      </div>
+      <p class="sub" id="range" style="margin-top:10px"></p>
+    </section>
+
+    <div class="kpis" id="kpis"></div>
+
+    <section class="card">
+      <h2>Einschätzung</h2>
+      <ul class="hints" id="hints"></ul>
+    </section>
+
+    <section class="card">
+      <h2>Tagesverlauf</h2>
+      <div class="nav">
+        <button class="btn small ghost" id="prevDay" aria-label="Vorheriger Tag">‹</button>
+        <div class="d" id="dayLabel"></div>
+        <button class="btn small ghost" id="nextDay" aria-label="Nächster Tag">›</button>
+      </div>
+      <div id="dayChart"></div>
+      <div class="legend" id="dayLegend"></div>
+    </section>
+
+    <section class="card">
+      <h2>Tageswerte</h2>
+      <select id="metric" aria-label="Kennzahl"></select>
+      <div id="barChart" style="margin-top:8px"></div>
+      <p class="sub" id="barNote"></p>
+    </section>
+
+    <section class="card" id="copCard">
+      <h2>COP nach Vorlauftemperatur</h2>
+      <div id="copChart"></div>
+      <p class="sub">COP = Heizleistung / Leistungsaufnahme laut Luxtronik; nur Heizbetrieb, ab 10 min nach Verdichterstart.</p>
+    </section>
+
+    <section class="card" id="schaltCard">
+      <h2>Schaltpunkte am Pufferfühler</h2>
+      <div id="schalt"></div>
+    </section>
+
+    <section class="card" id="offCard">
+      <h2>Je Einstellung „Temperatur + −“</h2>
+      <div class="scroll"><table id="offTab"></table></div>
+      <p class="sub">Mittel im Heizbetrieb. Bei unterschiedlichem Wetter nur bedingt vergleichbar.</p>
+    </section>
+
+    <section class="card">
+      <h2>Tage</h2>
+      <div class="scroll"><table id="dayTab"></table></div>
+    </section>
+
+    <section class="card">
+      <details>
+        <summary id="runSum">Verdichterläufe</summary>
+        <div class="scroll" style="margin-top:8px"><table id="runTab"></table></div>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2>Export</h2>
+      <p class="sub">Gleiche Spalten wie die Dateien von Menüpunkt 6.</p>
+      <div class="row">
+        <button class="btn small ghost" data-exp="tage">Tage (CSV)</button>
+        <button class="btn small ghost" data-exp="zyklen">Läufe (CSV)</button>
+        <button class="btn small ghost" data-exp="einstellungen">Einstellungen (CSV)</button>
+        <label class="f" style="flex-direction:row;align-items:center;gap:6px">Dezimal
+          <select id="dez"><option value=",">Komma</option><option value=".">Punkt</option></select></label>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    myUplink-Logger · Auswertung 2.4.0 · <a href="https://github.com/reinhardneumann/myUplink-Logger">GitHub</a> · MIT-Lizenz<br>
+    Kein Angebot von alpha innotec oder myUplink. Werte ohne Gewähr.
+  </footer>
+</main>
+
+<script src="engine.js"></script>
+<script>
+(function () {
+  'use strict';
+  const E = window.MuAuswertung;
+  const $ = id => document.getElementById(id);
+  const MIN = E.MIN;
+  let zeilen = null, res = null, tagIdx = 0, dateiName = '';
+
+  // ---------- Formatierung ----------
+  const nf = (v, d) => (v === null || v === undefined || Number.isNaN(v)) ? '–' :
+    Number(v).toLocaleString('de-DE', { minimumFractionDigits: d === undefined ? 0 : d, maximumFractionDigits: d === undefined ? 2 : d });
+  const p2 = x => String(x).padStart(2, '0');
+  const dmy = ms => { const d = new Date(ms); return p2(d.getDate()) + '.' + p2(d.getMonth() + 1) + '.' + d.getFullYear(); };
+  const dm = ms => { const d = new Date(ms); return p2(d.getDate()) + '.' + p2(d.getMonth() + 1) + '.'; };
+  const hm = ms => { const d = new Date(ms); return p2(d.getHours()) + ':' + p2(d.getMinutes()); };
+  const isoTag = ms => E.tagSchluessel(ms);
+  const tagAusKey = k => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d).getTime(); };
+  const wt = ms => ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][new Date(ms).getDay()];
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  // ---------- Datei laden ----------
+  function status(html) { $('status').innerHTML = html; }
+  function lade(datei) {
+    if (!datei) return;
+    dateiName = datei.name;
+    status('<span class="spinner"></span> Lese ' + esc(datei.name) + ' …');
+    const fr = new FileReader();
+    fr.onerror = () => status('<span class="err">Datei konnte nicht gelesen werden.</span>');
+    fr.onload = () => setTimeout(() => {
+      try {
+        zeilen = E.parseCsv(fr.result);
+        $('von').value = ''; $('bis').value = '';
+        auswerten();
+      } catch (e) { zeigeFehler(e); }
+    }, 30);
+    fr.readAsText(datei, 'utf-8');
+  }
+  function zeigeFehler(e) {
+    $('startCard').classList.remove('hidden');
+    $('out').classList.add('hidden');
+    status('<span class="err">' + esc(e.message || e) + '</span>');
+  }
+  $('file').addEventListener('change', e => { lade(e.target.files[0]); e.target.value = ''; });
+  const drop = $('drop');
+  ['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => lade(e.dataTransfer.files[0]));
+  document.addEventListener('dragover', e => e.preventDefault());
+  document.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer.files[0]) lade(e.dataTransfer.files[0]); });
+
+  function auswerten() {
+    const opt = {};
+    if ($('von').value) opt.von = tagAusKey($('von').value);
+    if ($('bis').value) opt.bis = tagAusKey($('bis').value);
+    if (!$('devWrap').classList.contains('hidden') && $('dev').value) opt.deviceId = $('dev').value;
+    try { res = E.analysiere(zeilen, opt); } catch (e) { zeigeFehler(e); return; }
+    $('startCard').classList.add('hidden');
+    $('out').classList.remove('hidden');
+    tagIdx = res.tage.length - 1;
+    zeichneAlles();
+  }
+  $('apply').addEventListener('click', auswerten);
+  $('reset').addEventListener('click', () => { $('von').value = ''; $('bis').value = ''; auswerten(); });
+
+  // ---------- Darstellung ----------
+  function zeichneAlles() {
+    const g = res.gesamt;
+    // Geräteauswahl
+    if (res.geraete.length > 1) {
+      $('devWrap').classList.remove('hidden');
+      $('dev').innerHTML = res.geraete.map(d => '<option' + (d === res.deviceId ? ' selected' : '') + '>' + esc(d) + '</option>').join('');
+    }
+    $('range').textContent = esc(dateiName) + ' · ' + dmy(res.start) + ' ' + hm(res.start) + ' bis ' + dmy(res.ende) + ' ' + hm(res.ende) +
+      ' · ' + nf(g.Abdeckung_h, 1) + ' h mit Daten' + (res.warnungen.length ? ' · ' + res.warnungen.join(' ') : '');
+
+    // Kennzahlen
+    const az = g.AZ_Heizen !== null ? nf(g.AZ_Heizen, 2) : '–';
+    const k = [
+      ['Arbeitszahl Heizen', az, '', g.AZ_Heizen !== null ? nf(g.Waerme_Heizen_kWh, 1) + ' kWh Wärme / ' + nf(g.Strom_Heizen_kWh, 1) + ' kWh Strom' : 'Luxtronik-Zähler nicht im Log'],
+      ['Außentemperatur Ø', nf(g.Aussen_C, 1), '°C', ''],
+      ['Starts je Laufstunde', nf(g.Starts_je_Laufstunde, 2), '', nf(g.Starts, 0) + ' Starts, ' + nf(g.Laufzeit_h, 1) + ' h Laufzeit'],
+      ['Ø Laufzeit', nf(g.Lauf_Mittel_min, 0), 'min', 'Ø Pause ' + nf(g.Pause_Mittel_min, 0) + ' min'],
+      ['WP-Vorlauf Ø', nf(g.Vorlauf_C, 1), '°C', 'im Heizbetrieb'],
+      ['Spreizung', nf(g.Spreizung_K, 1), 'K', 'Vorlauf minus Rücklauf'],
+      ['WP → Puffer', nf(g.Abstand_WP_Puffer_K, 1), 'K', 'Anteil Ladekreis'],
+      ['Puffer → Heizkreis', nf(g.Abstand_Puffer_Mischer_K, 1), 'K', 'über Mischer-Soll']
+    ];
+    $('kpis').innerHTML = k.map(x => '<div class="kpi"><div class="l">' + x[0] + '</div><div class="v">' + x[1] +
+      (x[2] && x[1] !== '–' ? '<small>' + x[2] + '</small>' : '') + '</div>' + (x[3] ? '<div class="h">' + x[3] + '</div>' : '') + '</div>').join('');
+
+    // Einschätzung
+    const cls = { '!': ['warn', '!'], '+': ['ok', '✓'], 'i': ['info', 'i'], '': ['none', ''] };
+    $('hints').innerHTML = res.einschaetzung.map(e => '<li><span class="dot ' + cls[e[0]][0] + '">' + cls[e[0]][1] + '</span><span>' + esc(e[1]) + '</span></li>').join('');
+
+    zeichneTag();
+    fuelleMetriken();
+    zeichneBalken();
+    zeichneCop();
+    zeichneSchalt();
+    zeichneOffset();
+    zeichneTabellen();
+  }
+
+  // Breite des Diagramms an den Container anpassen
+  const breite = el => Math.max(300, Math.round(el.clientWidth || 600));
+
+  // ---------- Tagesverlauf ----------
+  function zeichneTag() {
+    if (!res.tage.length) return;
+    tagIdx = Math.max(0, Math.min(tagIdx, res.tage.length - 1));
+    const key = res.tage[tagIdx].Datum;
+    const t0 = tagAusKey(key), t1 = t0 + 24 * 60 * MIN;
+    const tz = res.tage[tagIdx];
+    $('dayLabel').textContent = wt(t0) + ', ' + dmy(t0);
+    $('prevDay').disabled = tagIdx === 0;
+    $('nextDay').disabled = tagIdx === res.tage.length - 1;
+
+    const el = $('dayChart');
+    const W = breite(el), H = Math.round(Math.min(340, Math.max(240, W * 0.55)));
+    const L = 40, R = 10, T = 12, B = 26;
+    const r = res.r, start = res.start, n = res.n;
+    // Vorlauf nur im eingeschwungenen Heizbetrieb (ohne Anlauf, Abtauen, Warmwasser)
+    const heizVL = k => {
+      if (!(res.abgedeckt[k] && r.Verdichter[k] >= 0.5 && res.alter[k] >= 10)) return false;
+      for (let j = 0; j <= 10 && k - j >= 0; j++) if (r.Zustand[k - j] !== 0) return false;
+      return true;
+    };
+    const k0 = Math.max(0, Math.ceil((t0 - start) / MIN)), k1 = Math.min(n - 1, Math.floor((t1 - start) / MIN));
+    const step = 3;
+    const pts = [];
+    for (let k = k0; k <= k1; k += step) pts.push(k);
+    if (pts.length && pts[pts.length - 1] !== k1) pts.push(k1);
+
+    // Wertebereich
+    let lo = Infinity, hi = -Infinity;
+    const take = v => { if (!Number.isNaN(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } };
+    for (const k of pts) {
+      if (!res.abgedeckt[k]) continue;
+      if (heizVL(k)) take(r.Vorlauf[k]);
+      take(r.RuecklaufExt[k]); take(r.MischerSoll[k]);
+      if (Number.isNaN(r.RuecklaufExt[k])) take(r.Ruecklauf[k]);
+    }
+    if (!Number.isFinite(lo)) { el.innerHTML = '<p class="muted">Keine Daten an diesem Tag.</p>'; $('dayLegend').innerHTML = ''; return; }
+    lo = Math.floor((lo - 1) / 5) * 5; hi = Math.ceil((hi + 1) / 5) * 5;
+    const X = t => L + (t - t0) / (t1 - t0) * (W - L - R);
+
+    const Y = v => T + (hi - v) / (hi - lo) * (H - T - B);
+    const tAt = k => start + k * MIN;
+
+    let s = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Tagesverlauf ' + dmy(t0) + '">';
+    // Betriebsphasen (Heizen, Warmwasser, Abtauen) als Hintergrund
+    const phase = k => {
+      if (!res.abgedeckt[k] || !(r.Verdichter[k] >= 0.5)) return null;
+      const z = r.Zustand[k];
+      return z === 1 ? 'ww' : z === 4 ? 'abtau' : 'run';
+    };
+    let cur = null, a = null;
+    const flush = (bis) => { if (cur) s += '<rect x="' + X(tAt(a)).toFixed(1) + '" y="' + T + '" width="' + Math.max(1, X(tAt(bis)) - X(tAt(a))).toFixed(1) + '" height="' + (H - T - B) + '" fill="var(--' + cur + ')"/>'; };
+    for (let k = k0; k <= k1; k++) {
+      const ph = phase(k);
+      if (ph !== cur) { flush(k); cur = ph; a = k; }
+    }
+    flush(k1);
+    // Raster
+    for (let v = lo; v <= hi; v += 5) {
+      s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(v).toFixed(1) + '" y2="' + Y(v).toFixed(1) + '" stroke="var(--grid)"/>';
+      s += '<text x="' + (L - 6) + '" y="' + (Y(v) + 4).toFixed(1) + '" text-anchor="end" font-size="11" fill="var(--muted)">' + v + '°</text>';
+    }
+    const stunden = W < 420 ? [0, 6, 12, 18, 24] : [0, 3, 6, 9, 12, 15, 18, 21, 24];
+    for (const h of stunden) s += '<text x="' + X(t0 + h * 60 * MIN).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="11" fill="var(--muted)">' + h + ' h</text>';
+    // Linien
+    const pfad = (wert) => {
+      let d = '', offen = false;
+      for (const k of pts) {
+        const v = wert(k);
+        if (v === null || Number.isNaN(v)) { offen = false; continue; }
+        d += (offen ? 'L' : 'M') + X(tAt(k)).toFixed(1) + ' ' + Y(v).toFixed(1);
+        offen = true;
+      }
+      return d;
+    };
+    const hatPuffer = pts.some(k => !Number.isNaN(r.RuecklaufExt[k]));
+    const hatMK = pts.some(k => !Number.isNaN(r.MischerSoll[k]));
+    if (hatMK) s += '<path d="' + pfad(k => res.abgedeckt[k] ? r.MischerSoll[k] : null) + '" fill="none" stroke="var(--ref)" stroke-width="1.5" stroke-dasharray="5 4"/>';
+    if (hatPuffer) s += '<path d="' + pfad(k => res.abgedeckt[k] ? r.RuecklaufExt[k] : null) + '" fill="none" stroke="var(--puffer)" stroke-width="1.8"/>';
+    else s += '<path d="' + pfad(k => res.abgedeckt[k] && r.Verdichter[k] >= 0.5 ? r.Ruecklauf[k] : null) + '" fill="none" stroke="var(--puffer)" stroke-width="1.6"/>';
+    s += '<path d="' + pfad(k => heizVL(k) ? r.Vorlauf[k] : null) + '" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linejoin="round"/>';
+    s += '</svg>';
+    el.innerHTML = s;
+
+    const lg = [
+      '<span><i style="background:var(--accent)"></i>WP-Vorlauf (Heizbetrieb)</span>',
+      hatPuffer ? '<span><i style="background:var(--puffer)"></i>Puffer (Rücklauf extern)</span>' : '<span><i style="background:var(--puffer)"></i>WP-Rücklauf (im Lauf)</span>',
+      hatMK ? '<span><i style="background:none;border-top:2px dashed var(--ref);height:0;width:16px"></i>Mischerkreis-Soll</span>' : '',
+      '<span><i style="background:var(--run)"></i>Heizen</span><span><i style="background:var(--ww)"></i>Warmwasser</span><span><i style="background:var(--abtau)"></i>Abtauen</span>'
+    ];
+    $('dayLegend').innerHTML = lg.join('') + '<span style="flex-basis:100%">' + nf(tz.Starts, 0) + ' Starts · ' + nf(tz.Laufzeit_h, 1) + ' h Laufzeit · außen Ø ' + nf(tz.Aussen_C, 1) + ' °C' +
+      (tz.AZ_Heizen !== null ? ' · AZ Heizen ' + nf(tz.AZ_Heizen, 2) : '') + (tz.Hinweis ? ' · ' + esc(tz.Hinweis) : '') + '</span>';
+  }
+  $('prevDay').addEventListener('click', () => { tagIdx--; zeichneTag(); });
+  $('nextDay').addEventListener('click', () => { tagIdx++; zeichneTag(); });
+
+  // ---------- Tageswerte als Balken ----------
+  const METRIKEN = [
+    ['AZ_Heizen', 'Arbeitszahl Heizen', 2, ''], ['AZ_gesamt', 'Arbeitszahl gesamt', 2, ''],
+    ['Strom_gesamt_kWh', 'Strom', 1, 'kWh'], ['Waerme_gesamt_kWh', 'Wärme (Zähler)', 1, 'kWh'], ['Waerme_kWh', 'Wärme (geschätzt)', 1, 'kWh'],
+    ['Laufzeit_h', 'Laufzeit', 1, 'h'], ['Starts', 'Starts', 0, ''], ['Starts_je_Laufstunde', 'Starts je Laufstunde', 2, ''],
+    ['Lauf_Mittel_min', 'Ø Laufzeit', 0, 'min'], ['Vorlauf_C', 'WP-Vorlauf', 1, '°C'], ['Spreizung_K', 'Spreizung', 1, 'K'],
+    ['Abstand_WP_Puffer_K', 'WP → Puffer', 1, 'K'], ['Abstand_Puffer_Mischer_K', 'Puffer → Mischer-Soll', 1, 'K'],
+    ['Aussen_C', 'Außentemperatur', 1, '°C'], ['Abtauungen', 'Abtauungen', 0, '']
+  ];
+  function fuelleMetriken() {
+    const vorher = $('metric').value;
+    const verf = METRIKEN.filter(m => res.tage.some(t => t[m[0]] !== null && t[m[0]] !== undefined));
+    $('metric').innerHTML = verf.map(m => '<option value="' + m[0] + '">' + m[1] + (m[3] ? ' (' + m[3] + ')' : '') + '</option>').join('');
+    const std = verf.find(m => m[0] === vorher) || verf.find(m => m[0] === 'AZ_Heizen') || verf.find(m => m[0] === 'Laufzeit_h') || verf[0];
+    if (std) $('metric').value = std[0];
+  }
+  $('metric').addEventListener('change', zeichneBalken);
+  function zeichneBalken() {
+    const m = METRIKEN.find(x => x[0] === $('metric').value);
+    const el = $('barChart');
+    if (!m) { el.innerHTML = ''; return; }
+    const rows = res.tage;
+    const W = breite(el), H = 200, L = 8, R = 8, T = 22, B = 34;
+    const vals = rows.map(t => t[m[0]]);
+    const ok = vals.filter(v => v !== null && v !== undefined);
+    const minV = Math.min(0, ...ok), maxV = Math.max(0, ...ok);
+    const span = (maxV - minV) || 1;
+    const Y = v => T + (maxV - v) / span * (H - T - B);
+    const bw = (W - L - R) / rows.length;
+    const zeigeWert = bw > 26;
+    let s = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(m[1]) + ' je Tag">';
+    s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(0).toFixed(1) + '" y2="' + Y(0).toFixed(1) + '" stroke="var(--line)"/>';
+    const jedes = Math.ceil(rows.length / Math.max(1, Math.floor((W - L - R) / 42)));
+    rows.forEach((t, i) => {
+      const v = vals[i], x = L + i * bw + bw * 0.15, w = Math.max(2, bw * 0.7);
+      const teil = t.Hinweis && t.Hinweis.indexOf('unvollständig') >= 0;
+      if (v !== null && v !== undefined) {
+        const y = Math.min(Y(v), Y(0)), h = Math.abs(Y(v) - Y(0));
+        s += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + Math.max(1, h).toFixed(1) + '" rx="2" fill="var(--accent)" fill-opacity="' + (teil ? 0.35 : 0.9) + '"><title>' + t.Datum + ': ' + nf(v, m[2]) + ' ' + m[3] + (teil ? ' (Tag unvollständig)' : '') + '</title></rect>';
+        if (zeigeWert) s += '<text x="' + (x + w / 2).toFixed(1) + '" y="' + (v >= 0 ? Y(v) - 5 : Y(v) + 13).toFixed(1) + '" text-anchor="middle" font-size="11" fill="var(--text)">' + nf(v, m[2]) + '</text>';
+      }
+      if (i % jedes === 0) s += '<text x="' + (x + w / 2).toFixed(1) + '" y="' + (H - 14) + '" text-anchor="middle" font-size="11" fill="var(--muted)">' + dm(tagAusKey(t.Datum)) + '</text>';
+    });
+    s += '</svg>';
+    el.innerHTML = s;
+    const g = res.gesamt[m[0]];
+    $('barNote').textContent = 'Gesamtzeitraum: ' + nf(g, m[2]) + (m[3] ? ' ' + m[3] : '') + '. Blasse Balken = Tag unvollständig.';
+  }
+
+  // ---------- COP nach Vorlauf ----------
+  function zeichneCop() {
+    const rows = res.copNachVorlauf;
+    $('copCard').classList.toggle('hidden', rows.length < 2);
+    if (rows.length < 2) return;
+    const el = $('copChart');
+    const W = breite(el), H = 210, L = 8, R = 8, T = 24, B = 46;
+    const maxV = Math.max(...rows.map(r => r.COP)) * 1.12;
+    const bw = (W - L - R) / rows.length;
+    const Y = v => T + (maxV - v) / maxV * (H - T - B);
+    let s = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="COP nach Vorlauftemperatur">';
+    s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(0) + '" y2="' + Y(0) + '" stroke="var(--line)"/>';
+    rows.forEach((r, i) => {
+      const x = L + i * bw + bw * 0.18, w = bw * 0.64, op = 1 - i * (0.6 / Math.max(1, rows.length - 1));
+      s += '<rect x="' + x.toFixed(1) + '" y="' + Y(r.COP).toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + (Y(0) - Y(r.COP)).toFixed(1) + '" rx="3" fill="var(--accent)" fill-opacity="' + op.toFixed(2) + '"><title>' + r.Vorlauf + ': COP ' + nf(r.COP, 2) + ', ' + r.Minuten + ' min</title></rect>';
+      s += '<text x="' + (x + w / 2).toFixed(1) + '" y="' + (Y(r.COP) - 6).toFixed(1) + '" text-anchor="middle" font-size="13" font-weight="600" fill="var(--text)">' + nf(r.COP, 2) + '</text>';
+      s += '<text x="' + (x + w / 2).toFixed(1) + '" y="' + (H - 28) + '" text-anchor="middle" font-size="11" fill="var(--text)">' + r.Vorlauf.replace(' °C', '°') + '</text>';
+      s += '<text x="' + (x + w / 2).toFixed(1) + '" y="' + (H - 13) + '" text-anchor="middle" font-size="10" fill="var(--muted)">' + r.Minuten + ' min</text>';
+    });
+    s += '</svg>';
+    el.innerHTML = s;
+  }
+
+  // ---------- Schaltpunkte ----------
+  function zeichneSchalt() {
+    const sp = res.schaltpunkte;
+    $('schaltCard').classList.toggle('hidden', !sp);
+    if (!sp) return;
+    const sg = v => (v > 0 ? '+' : '') + nf(v, 1);
+    $('schalt').innerHTML = '<p>Pufferfühler minus Rücklauf-Soll, ' + sp.Laeufe + ' Läufe:</p>' +
+      '<div class="kpis" style="margin-top:6px"><div class="kpi"><div class="l">Start (Median)</div><div class="v">' + sg(sp.Start_Median_K) + '<small>K</small></div><div class="h">' + sg(sp.Start_Min_K) + ' bis ' + sg(sp.Start_Max_K) + ' K</div></div>' +
+      '<div class="kpi"><div class="l">Stopp (Median)</div><div class="v">' + sg(sp.Stopp_Median_K) + '<small>K</small></div><div class="h">' + sg(sp.Stopp_Min_K) + ' bis ' + sg(sp.Stopp_Max_K) + ' K</div></div></div>' +
+      '<p class="sub" style="margin-top:8px">Liegen Start und Stopp eng um das Soll, regelt die WP auf diesen Fühler; der Abstand ist die Schaltdifferenz.</p>';
+  }
+
+  // ---------- Tabellen ----------
+  function tabelle(el, spalten, rows, rowCls) {
+    el.innerHTML = '<thead><tr>' + spalten.map(c => '<th>' + c[0] + '</th>').join('') + '</tr></thead><tbody>' +
+      rows.map(r => '<tr' + (rowCls ? ' class="' + rowCls(r) + '"' : '') + '>' + spalten.map(c => '<td>' + c[1](r) + '</td>').join('') + '</tr>').join('') + '</tbody>';
+  }
+  function zeichneOffset() {
+    const rows = res.proOffset;
+    $('offCard').classList.toggle('hidden', rows.length < 1);
+    tabelle($('offTab'), [
+      ['Offset', r => (r.Offset_K > 0 ? '+' : '') + nf(r.Offset_K, 1) + ' K'], ['ab', r => dm(r.Erste_Heizminute) + ' ' + hm(r.Erste_Heizminute)],
+      ['Heiz h', r => nf(r.Heizstunden, 1)], ['Außen °C', r => nf(r.Aussen_C, 1)], ['VL °C', r => nf(r.Vorlauf_C, 1)], ['RL °C', r => nf(r.Ruecklauf_C, 1)],
+      ['MK Soll', r => nf(r.Mischer_Soll_C, 1)], ['MK Ist', r => nf(r.Mischer_Vorlauf_C, 1)], ['COP', r => nf(r.COP, 2)]
+    ], rows);
+  }
+  function zeichneTabellen() {
+    const alle = res.tage.concat([res.gesamt]);
+    tabelle($('dayTab'), [
+      ['Tag', r => r.Datum === 'Gesamt' ? 'Gesamt' : wt(tagAusKey(r.Datum)) + ' ' + dm(tagAusKey(r.Datum))],
+      ['Außen °C', r => nf(r.Aussen_C, 1)], ['Starts', r => nf(r.Starts, 0)], ['Lauf h', r => nf(r.Laufzeit_h, 1)],
+      ['Ø Lauf min', r => nf(r.Lauf_Mittel_min, 0)], ['Starts/Lh', r => nf(r.Starts_je_Laufstunde, 2)],
+      ['VL °C', r => nf(r.Vorlauf_C, 1)], ['RL °C', r => nf(r.Ruecklauf_C, 1)], ['Spreiz K', r => nf(r.Spreizung_K, 1)],
+      ['WP→Puf K', r => nf(r.Abstand_WP_Puffer_K, 1)], ['Puf→MK K', r => nf(r.Abstand_Puffer_Mischer_K, 1)],
+      ['Abtau', r => nf(r.Abtauungen, 0)], ['WW', r => nf(r.WW_Ladungen, 0)],
+      ['Strom kWh', r => nf(r.Strom_gesamt_kWh, 1)], ['Wärme kWh', r => r.Waerme_gesamt_kWh !== null ? nf(r.Waerme_gesamt_kWh, 1) : '≈' + nf(r.Waerme_kWh, 1)],
+      ['AZ Hz', r => nf(r.AZ_Heizen, 2)], ['AZ ges', r => nf(r.AZ_gesamt, 2)], ['Hinweis', r => '<span class="muted">' + esc(r.Hinweis || '') + '</span>']
+    ], alle, r => r.Datum === 'Gesamt' ? 'total' : '');
+    $('runSum').textContent = 'Verdichterläufe (' + res.zyklen.length + ')';
+    tabelle($('runTab'), [
+      ['Start', r => dm(r.Start) + ' ' + hm(r.Start)], ['Dauer min', r => nf(r.Dauer_min, 0)], ['Pause min', r => nf(r.Pause_vorher_min, 0)],
+      ['Außen °C', r => nf(r.Aussen_C, 1)], ['VL °C', r => nf(r.Vorlauf_C, 1)], ['Spreiz K', r => nf(r.Spreizung_K, 1)],
+      ['Puffer Start', r => nf(r.Puffer_Start_C, 1)], ['Puffer Stopp', r => nf(r.Puffer_Stopp_C, 1)],
+      ['Schalt Start K', r => nf(r.Schalt_Start_K, 1)], ['Schalt Stopp K', r => nf(r.Schalt_Stopp_K, 1)],
+      ['VL Stopp', r => nf(r.Vorlauf_Stopp_C, 1)], ['COP', r => nf(r.COP, 2)], ['Abtau', r => nf(r.Abtauungen, 0)],
+      ['WW min', r => nf(r.WW_min, 0)], ['Status', r => '<span class="muted">' + esc(r.Status) + '</span>']
+    ], res.zyklen.slice().reverse());
+  }
+
+  // ---------- Export ----------
+  document.querySelectorAll('[data-exp]').forEach(b => b.addEventListener('click', () => {
+    const art = b.getAttribute('data-exp');
+    const daten = art === 'tage' ? res.tage.concat([res.gesamt]) : art === 'zyklen' ? res.zyklen : res.proOffset;
+    const blob = new Blob([E.zuCsv(daten, $('dez').value)], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'myuplink-auswertung-' + art + '.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }));
+  try { const d = localStorage.getItem('mu-dez'); if (d) $('dez').value = d; } catch (e) { /* ohne Speicher */ }
+  $('dez').addEventListener('change', () => { try { localStorage.setItem('mu-dez', $('dez').value); } catch (e) { /* ohne Speicher */ } });
+
+  // Neu zeichnen bei Größenänderung (Drehen des Handys)
+  let rt = null;
+  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (res) { zeichneTag(); zeichneBalken(); zeichneCop(); } }, 150); });
+
+  // Offline-Nutzung und „Zum Startbildschirm“
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+})();
+</script>
+</body>
+</html>

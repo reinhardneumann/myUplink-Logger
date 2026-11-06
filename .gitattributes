@@ -2,3 +2,6 @@
 *.ps1 text eol=crlf
 *.bat text eol=crlf
 *.md  text eol=lf
+*.png binary
+*.html text eol=lf
+*.js text eol=lf

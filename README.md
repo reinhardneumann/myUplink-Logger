@@ -20,6 +20,7 @@ Wozu? Die myUplink-App zeigt aktuelle Werte, aber kaum Verläufe. Mit dem Log la
 | `MyUplink-Menue.ps1` | Textmenü (Zugangsdaten, Test, Logger, Hilfe) |
 | `MyUplink-Logger.ps1` | Die eigentlichen Funktionen |
 | `MyUplink-Auswertung.ps1` | Auswertung der Logdatei (Takte, Tageswerte, Arbeitszahlen) |
+| `auswertung/` | Auswertung im Browser für Handy, Tablet und PC (siehe unten) |
 | `Luxtronik-Modbus.ps1` | Optional: Werte direkt aus der Luxtronik über Modbus TCP (Strom, Wärme, COP) |
 | `docs/parameter.md` | Parameterreferenz einer Paros 4-2 |
 
@@ -169,6 +170,17 @@ Weitere Prüfungen (seit 2.4.0):
 - **Pumpen:** Laufzeit von HUP und ZUP in den Verdichterpausen, ohne Deutung, weil die Zuordnung von der Hydraulik abhängt.
 
 Ein Monat Log wird in etwa 20 Sekunden ausgewertet.
+
+## Auswertung auf dem Handy (Browser)
+
+**[https://reinhardneumann.github.io/myUplink-Logger/auswertung/](https://reinhardneumann.github.io/myUplink-Logger/auswertung/)**
+
+Die gleiche Auswertung wie Menüpunkt 6 als Webseite, mit Diagrammen: Tagesverlauf (WP-Vorlauf, Puffer, Mischerkreis-Soll, Heiz-, Warmwasser- und Abtauphasen), Tageswerte als Balken (Arbeitszahl, Laufzeit, Starts und mehr), COP nach Vorlauftemperatur, Schaltpunkte, Tabellen und CSV-Export.
+
+- **Die Logdatei bleibt auf dem Gerät.** Sie wird im Browser ausgewertet und nirgends hochgeladen; die Seite hat keinen Server-Teil.
+- Datei öffnen: z. B. den Logger in einen OneDrive- oder Google-Drive-Ordner schreiben lassen (`Write-MyUplinkLog -OutFile …`) und die Datei auf dem Handy über „Logdatei öffnen“ auswählen.
+- Auf Android in Chrome über das Menü „Zum Startbildschirm hinzufügen“ bzw. „App installieren“ wie eine App ablegen; die Seite funktioniert danach auch offline.
+- Ergebnisse sind identisch mit `Invoke-MyUplinkAuswertung` (gleiche Rechenregeln, gegen die PowerShell-Version getestet).
 
 ## Auswertungstipps
 

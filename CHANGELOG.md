@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5.0 – 2026-11-06
+
+- Neu: Auswertung im Browser (`auswertung/`), z. B. auf dem Handy: gleiche Rechenregeln wie `Invoke-MyUplinkAuswertung`, mit Diagrammen (Tagesverlauf, Tageswerte, COP nach Vorlauf), Tabellen und CSV-Export; installierbar als App, funktioniert offline; die Logdatei bleibt auf dem Gerät
+- Veröffentlicht über GitHub Pages: https://reinhardneumann.github.io/myUplink-Logger/auswertung/
+
 ## 2.4.0 – 2026-11-05
 
 - Auswertung trennt bei Puffer mit Fühler „Rücklauf extern“ den Abstand WP-Vorlauf → Puffer (Ladekreis) und Puffer → Mischerkreis-Soll (Heizkurve); der bisherige Hinweis „WP erzeugt höher als nötig, Heizkurve prüfen“ war bei Trennpuffern irreführend

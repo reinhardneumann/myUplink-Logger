@@ -22,6 +22,7 @@ Why? The myUplink app shows current values but hardly any history. With the log 
 | `MyUplink-Menue.ps1` | Text menu (credentials, test, logger, help) |
 | `MyUplink-Logger.ps1` | The actual functions |
 | `MyUplink-Auswertung.ps1` | Log analysis (cycles, daily figures, seasonal performance) |
+| `auswertung/` | Browser analysis for phone, tablet and PC (see below) |
 | `Luxtronik-Modbus.ps1` | Optional: values directly from the Luxtronik via Modbus TCP (electricity, heat, COP) |
 | `docs/parameter.md` | Parameter reference of a Paros 4-2 (German) |
 
@@ -169,6 +170,17 @@ Additional checks (since 2.4.0):
 - **Pumps:** run time of HUP and ZUP during compressor pauses, without interpretation, since their role depends on the hydraulics.
 
 One month of log data takes about 20 seconds.
+
+## Analysis on your phone (browser)
+
+**[https://reinhardneumann.github.io/myUplink-Logger/auswertung/](https://reinhardneumann.github.io/myUplink-Logger/auswertung/)**
+
+The same analysis as menu option 6 as a web page with charts: daily course (flow, buffer, mixing circuit target, heating/hot water/defrost phases), daily values as bars (performance factor, run time, starts and more), COP by flow temperature, switching points, tables and CSV export. The page is in German.
+
+- **The log file stays on your device.** It is processed in the browser and never uploaded; the page has no server part.
+- Getting the file onto the phone: e.g. let the logger write into a OneDrive or Google Drive folder and pick the file via "Logdatei öffnen".
+- On Android in Chrome use "Add to Home screen" / "Install app"; afterwards the page also works offline.
+- Results are identical to `Invoke-MyUplinkAuswertung` (same rules, tested against the PowerShell version).
 
 ## Analysis tips
 
